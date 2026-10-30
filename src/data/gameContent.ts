@@ -1,4 +1,13 @@
-import { ClueRecord, DialoguePayload, GamePhase, WalkableRect, WorldMarker } from '../types';
+import {
+  ClueRecord,
+  DialoguePayload,
+  FinalSubstate,
+  GamePhase,
+  PhaseIndicator,
+  SensorChallengeType,
+  WalkableRect,
+  WorldMarker,
+} from '../types';
 
 export const PORTRAITS = {
   conserje: '/assets/aistudio/Conserje_be5458b0.png',
@@ -164,7 +173,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
     kind: 'personaje',
     glbFile: 'dpwii_parcial2_marcadores_personaje.glb',
     label: 'Tsuki',
-    sublabel: 'Estudiante Guía · Vestíbulo',
+    sublabel: 'Estudiante · Entrada Principal',
     floor: 1,
     position: [-2.8, 0, -0.8],
     portraitUrl: PORTRAITS.tsuki,
@@ -173,19 +182,19 @@ export const WORLD_MARKERS: WorldMarker[] = [
     id: 'objeto_vestibulo',
     kind: 'objeto',
     glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
-    label: 'Tablón Escolar',
-    sublabel: 'Lista de Aulas · Vestíbulo',
+    label: 'Tablero de Avisos',
+    sublabel: 'Listas de Grupos · 1° Piso',
     floor: 1,
     position: [2.2, 0, -1.6],
   },
 
-  // --- PASO 1 & 2: Armario de Limpieza (1F Ala Izquierda) ---
+  // --- PASO 1: Conserje y Armario de Limpieza (1F Ala Izquierda) ---
   {
     id: 'personaje_conserje',
     kind: 'personaje',
     glbFile: 'dpwii_parcial2_marcadores_personaje.glb',
     label: 'El Conserje',
-    sublabel: 'Armario de Limpieza',
+    sublabel: 'Personal de Mantenimiento',
     floor: 1,
     position: [-27.2, 0, -20.8],
     portraitUrl: PORTRAITS.conserje,
@@ -195,20 +204,20 @@ export const WORLD_MARKERS: WorldMarker[] = [
     kind: 'objeto',
     glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
     label: 'Armario de Limpieza',
-    sublabel: 'Inspección Táctil 3D',
+    sublabel: 'Cuarto de Limpieza · Fondo Izquierdo',
     floor: 1,
     position: [-24.5, 0, -22.6],
     requiredPhase: 'ESTADO_1',
     challengeType: 'touch_closet',
   },
 
-  // --- PASO 3: Aparcabicicletas (1F Ala Derecha) ---
+  // --- PASO 2: Hotaru y Bicicletas (1F Ala Derecha) ---
   {
     id: 'personaje_hotaru',
     kind: 'personaje',
     glbFile: 'dpwii_parcial2_marcadores_personaje.glb',
     label: 'Hotaru',
-    sublabel: 'Aparcabicicletas',
+    sublabel: 'Estudiante · Zona de Bicicletas',
     floor: 1,
     position: [24.2, 0, -18.5],
     portraitUrl: PORTRAITS.hotaru,
@@ -217,21 +226,21 @@ export const WORLD_MARKERS: WorldMarker[] = [
     id: 'objeto_hotaru',
     kind: 'objeto',
     glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
-    label: 'Bicicletas Cubiertas',
-    sublabel: 'Sensor de Agitación (Shake)',
+    label: 'Bicicletas con Hojas',
+    sublabel: 'Patio Exterior · Ala Derecha',
     floor: 1,
     position: [27.5, 0, -21.8],
     requiredPhase: 'ESTADO_2',
     challengeType: 'shake_bikes',
   },
 
-  // --- PASO 4: Pasillo cerca de Aula 1B (1F) ---
+  // --- PASO 3: Kaeru y Campanita cerca de 1B (1F) ---
   {
     id: 'personaje_kaeru',
     kind: 'personaje',
     glbFile: 'dpwii_parcial2_marcadores_personaje.glb',
     label: 'Kaeru',
-    sublabel: 'Pasillo · Aula 1B',
+    sublabel: 'Estudiante · Pasillo frente a 1B',
     floor: 1,
     position: [-12.0, 0, 0.7],
     portraitUrl: PORTRAITS.kaeru,
@@ -240,8 +249,8 @@ export const WORLD_MARKERS: WorldMarker[] = [
     id: 'objeto_kaeru',
     kind: 'objeto',
     glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
-    label: 'Campana del Susurro',
-    sublabel: 'Sensor de Micrófono (Soplo)',
+    label: 'Campanita de Vidrio',
+    sublabel: 'Pasillo Principal · Cerca de 1B',
     floor: 1,
     position: [-9.2, 0, -1.2],
     requiredPhase: 'ESTADO_3',
@@ -254,7 +263,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
     kind: 'escalera',
     glbFile: 'dpwii_parcial2_marcadores_escalera.glb',
     label: 'Subir al Segundo Piso',
-    sublabel: 'Escaleras Ala Izquierda',
+    sublabel: 'Escalera Izquierda',
     floor: 1,
     position: [-23.3, 0, 2.9],
     targetFloor: 2,
@@ -266,7 +275,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
     kind: 'escalera',
     glbFile: 'dpwii_parcial2_marcadores_escalera.glb',
     label: 'Subir al Segundo Piso',
-    sublabel: 'Escaleras Ala Derecha',
+    sublabel: 'Escalera Derecha',
     floor: 1,
     position: [24.7, 0, 2.9],
     targetFloor: 2,
@@ -280,7 +289,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
     kind: 'escalera',
     glbFile: 'dpwii_parcial2_marcadores_escalera.glb',
     label: 'Bajar al Primer Piso',
-    sublabel: 'Escaleras Ala Izquierda',
+    sublabel: 'Escalera Izquierda',
     floor: 2,
     position: [-23.3, 0, 2.9],
     targetFloor: 1,
@@ -292,7 +301,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
     kind: 'escalera',
     glbFile: 'dpwii_parcial2_marcadores_escalera.glb',
     label: 'Bajar al Primer Piso',
-    sublabel: 'Escaleras Ala Derecha',
+    sublabel: 'Escalera Derecha',
     floor: 2,
     position: [24.7, 0, 2.9],
     targetFloor: 1,
@@ -300,13 +309,13 @@ export const WORLD_MARKERS: WorldMarker[] = [
     spawnYaw: 0,
   },
 
-  // --- PASO 5: Baños (2F Ala Derecha) ---
+  // --- PASO 4: Hanako y Espejo de los Baños (2F Ala Derecha) ---
   {
     id: 'personaje_hanako',
     kind: 'personaje',
     glbFile: 'dpwii_parcial2_marcadores_personaje.glb',
     label: 'Hanako',
-    sublabel: 'Baños · Segundo Piso',
+    sublabel: 'Estudiante · Baños del 2° Piso',
     floor: 2,
     position: [24.2, 0, -18.5],
     portraitUrl: PORTRAITS.hanako,
@@ -315,21 +324,21 @@ export const WORLD_MARKERS: WorldMarker[] = [
     id: 'objeto_hanako',
     kind: 'objeto',
     glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
-    label: 'Espejo de las Sombras',
-    sublabel: 'Sensor de Luz / Cámara',
+    label: 'Espejo de los Lavabos',
+    sublabel: 'Baños · Ala Derecha (2° Piso)',
     floor: 2,
     position: [27.6, 0, -21.2],
     requiredPhase: 'ESTADO_4',
     challengeType: 'light_hanako',
   },
 
-  // --- PASO 6: Sala de Profesores (2F Ala Izquierda) ---
+  // --- PASO 5: El Profesor y Caja del Escritorio (2F Ala Izquierda) ---
   {
     id: 'personaje_profesor',
     kind: 'personaje',
     glbFile: 'dpwii_parcial2_marcadores_personaje.glb',
     label: 'El Profesor',
-    sublabel: 'Sala de Profesores · Segundo Piso',
+    sublabel: 'Docente · Sala de Profesores',
     floor: 2,
     position: [-27.2, 0, -20.8],
     portraitUrl: PORTRAITS.profesor,
@@ -338,12 +347,24 @@ export const WORLD_MARKERS: WorldMarker[] = [
     id: 'objeto_profesor',
     kind: 'objeto',
     glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
-    label: 'Compartimento Sellado',
-    sublabel: 'Giroscopio / Nivelación',
+    label: 'Caja del Escritorio',
+    sublabel: 'Sala de Profesores · 2° Piso',
     floor: 2,
     position: [-24.5, 0, -22.6],
     requiredPhase: 'ESTADO_5',
     challengeType: 'gyro_profesor',
+  },
+
+  // --- SECUENCIA FINAL: Marcador de objeto (.glb) frente a la puerta del Salón 2C (2F) ---
+  {
+    id: 'objeto_puerta_destino',
+    kind: 'objeto',
+    glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
+    label: 'Seguro del Salón 2C',
+    sublabel: 'Frente a la puerta · 2° Piso',
+    floor: 2,
+    position: [10.8, 0, 1.35],
+    requiredPhase: 'ESTADO_FINAL',
   },
 ];
 
@@ -351,73 +372,206 @@ export const INITIAL_CLUES: ClueRecord[] = [
   {
     id: 'clue_1',
     stepNumber: 1,
-    title: 'Reglas del Conserje',
-    location: 'Armario de Limpieza (1° Piso · Izq.)',
-    sensorUsed: 'Diálogo Inicial',
+    title: 'Lo que comentaban los de la 1D',
+    location: 'Cuarto de limpieza · 1° Piso',
+    sensorUsed: 'Rumor de Pasillo',
     summary:
-      'El registro del Aula 404 desapareció. El Conserje autorizó revisar el viejo armario de madera junto a él.',
+      'El conserje escuchó a dos chicos de la 1D decir que alguien había guardado un sobre detrás de las cubetas, en el armario viejo que tiene el seguro flojo.',
     unlocked: false,
   },
   {
     id: 'clue_2',
     stepNumber: 2,
-    title: 'Nota Misteriosa del Armario',
-    location: 'Armario de Limpieza (1° Piso · Izq.)',
-    sensorUsed: 'Táctil + Vibración Háptica',
+    title: 'La hoja arrancada de cuaderno',
+    location: 'Armario de limpieza · 1° Piso',
+    sensorUsed: 'Tacto',
     summary:
-      'Entre escobas hallaste una nota sellada: "Quien vio llevarse la placa descansa junto a las bicicletas del ala derecha: busca a Hotaru."',
+      'En una nota pasada entre alumnos de la 1A comentaban que Hotaru vio quién se llevó la lista faltante mientras dejaba su bicicleta en el patio de la derecha.',
     unlocked: false,
   },
   {
     id: 'clue_3',
     stepNumber: 3,
-    title: 'Testimonio en el Patio Exterior',
-    location: 'Aparcabicicletas (1° Piso · Der.)',
-    sensorUsed: 'Acelerómetro / Agitación (Shake)',
+    title: 'Huellas rumbo al salón 1B',
+    location: 'Zona de bicicletas · 1° Piso',
+    sensorUsed: 'Sacudida',
     summary:
-      'Al sacudir los remolinos de hojas, Hotaru recordó a Kaeru merodeando en el pasillo principal cerca del Aula 1B.',
+      'Tal como contaban los de la 2C, al sacudir las hojas secas aparecieron huellas hacia el pasillo; dicen que Kaeru siempre pasa el rato frente a la 1B.',
     unlocked: false,
   },
   {
     id: 'clue_4',
     stepNumber: 4,
-    title: 'El Eco hacia el Segundo Piso',
-    location: 'Pasillo Aula 1B (1° Piso)',
-    sensorUsed: 'Micrófono (Web Audio API)',
+    title: 'Rumores del segundo piso',
+    location: 'Pasillo frente a la 1B',
+    sensorUsed: 'Soplo / Sonido',
     summary:
-      'Tu soplo hizo vibrar la campana espiritual. Kaeru reveló que Hanako aguarda en la penumbra de los Baños del Segundo Piso.',
+      'Después de comprobar lo que decían las chicas de la 1B sobre la campanita, Kaeru recordó que los de la 2D siempre mencionan a Hanako en los baños de arriba.',
     unlocked: false,
   },
   {
     id: 'clue_5',
     stepNumber: 5,
-    title: 'La Llave de la Penumbra',
-    location: 'Baños (2° Piso · Der.)',
-    sensorUsed: 'Sensor de Luz / Cámara WebRTC',
+    title: 'El mensaje en el vidrio empañado',
+    location: 'Baños del 2° Piso',
+    sensorUsed: 'Oscuridad',
     summary:
-      'Al cubrir la luz, el espejo reveló la llave grabada y dónde aguarda el Profesor: en la Sala de Profesores (Segundo Piso, ala izquierda).',
+      'Como decían los de la 2C, al cubrir la luz se leyó el espejo de los lavabos; en la 2A cuentan que un profesor guarda esos registros al otro extremo del piso.',
     unlocked: false,
   },
   {
     id: 'clue_6',
     stepNumber: 6,
-    title: 'Registro del Aula 404',
-    location: 'Sala de Profesores (2° Piso · Izq.)',
-    sensorUsed: 'Giroscopio / Inclinación Precisa',
+    title: 'El registro asignado a la 2C',
+    location: 'Sala de Profesores · 2° Piso',
+    sensorUsed: 'Equilibrio',
     summary:
-      'Nivelaste el compartimento sellado con precisión y recuperaste el pase oficial al Aula 404.',
+      'Al nivelar la caja del escritorio apareció tu registro para el salón 2C; cuentan que alguien dejó una pieza frente a esa puerta para quitarle el seguro exterior.',
     unlocked: false,
   },
 ];
 
-export const PHASE_OBJECTIVES: Record<GamePhase, string> = {
-  ESTADO_0: 'Paso 1/6 · Ve al Armario de Limpieza (1° Piso, ala izquierda) y habla con el Conserje.',
-  ESTADO_1: 'Paso 2/6 · Inspecciona el Objeto del Armario de Limpieza junto al Conserje.',
-  ESTADO_2: 'Paso 3/6 · Ve al Aparcabicicletas (1° Piso, ala derecha) y ayuda a Hotaru.',
-  ESTADO_3: 'Paso 4/6 · Busca a Kaeru en el Pasillo frente al Aula 1B (1° Piso).',
-  ESTADO_4: 'Paso 5/6 · Sube por las Escaleras al 2° Piso y busca a Hanako en los Baños (ala derecha).',
-  ESTADO_5: 'Paso 6/6 · Ve a la Sala de Profesores (2° Piso, ala izquierda) y habla con el Profesor.',
-  ESTADO_FINAL: 'Completado · Has recuperado el pase al Aula 404.',
+export const PHASE_INDICATORS: Record<GamePhase, PhaseIndicator> = {
+  ESTADO_0: {
+    stageTag: 'Rumor I',
+    title: 'Comentarios en la entrada',
+    whisper: 'Los de la 1C dicen que los papeles extraviados suelen terminar en limpieza, al fondo a la izquierda.',
+  },
+  ESTADO_1: {
+    stageTag: 'Rumor II',
+    title: 'El rumor de los de la 1D',
+    whisper: 'Cuentan que alguien dejó algo escondido entre las escobas del armario viejo.',
+  },
+  ESTADO_2: {
+    stageTag: 'Rumor III',
+    title: 'Lo que vieron en las bicicletas',
+    whisper: 'Una nota de los de la 1A menciona a Hotaru afuera, en el patio del ala derecha.',
+  },
+  ESTADO_3: {
+    stageTag: 'Rumor IV',
+    title: 'Conversaciones frente a la 1B',
+    whisper: 'Dicen que Kaeru siempre se queda conversando cerca de la puerta de la 1B.',
+  },
+  ESTADO_4: {
+    stageTag: 'Rumor V',
+    title: 'El comentario de los de la 2D',
+    whisper: 'Aseguran que subiendo a los baños del segundo piso, Hanako se entera de todo.',
+  },
+  ESTADO_5: {
+    stageTag: 'Rumor VI',
+    title: 'Rumores pasando la 2A',
+    whisper: 'Los de la 2A cuentan que en la sala de profesores guardan los registros fuera de lista.',
+  },
+  ESTADO_FINAL: {
+    stageTag: 'Rumor Final',
+    title: 'Lo que dejaron frente a la 2C',
+    whisper: 'Tu registro indica el salón 2C; dicen que frente a su puerta quedó el pase para abrirla.',
+  },
+};
+
+export function getPhaseIndicator(
+  phase: GamePhase,
+  unlockedObjects: Record<string, boolean>,
+  finalSubstate: FinalSubstate = 'pendiente'
+): PhaseIndicator {
+  if (phase === 'ESTADO_FINAL') {
+    if (finalSubstate === 'puerta_desbloqueada') {
+      return {
+        stageTag: 'Puerta Abierta',
+        title: 'Entrada al salón 2C',
+        whisper: 'Quitaste el seguro exterior; ya puedes acercarte y abrir la puerta del salón 2C.',
+      };
+    }
+    if (finalSubstate === 'completada') {
+      return {
+        stageTag: 'Resuelto',
+        title: 'Primer día completado',
+        whisper: 'Al final, todo lo que se comentaba en los pasillos resultó ser cierto.',
+      };
+    }
+    return PHASE_INDICATORS.ESTADO_FINAL;
+  }
+  if (phase === 'ESTADO_2' && unlockedObjects.objeto_hotaru) {
+    return {
+      stageTag: 'Rumor III',
+      title: 'La anécdota de las bicicletas',
+      whisper: 'Los de la 2C contaban que solo con una buena sacudida se quitaron las hojas secas.',
+    };
+  }
+  if (phase === 'ESTADO_3' && unlockedObjects.objeto_kaeru) {
+    return {
+      stageTag: 'Rumor IV',
+      title: 'La historia de la campanita',
+      whisper: 'Unas chicas de la 1B decían que ese vidrio devuelve sonidos si alguien sopla cerca.',
+    };
+  }
+  if (phase === 'ESTADO_4' && unlockedObjects.objeto_hanako) {
+    return {
+      stageTag: 'Rumor V',
+      title: 'El mensaje en el espejo',
+      whisper: 'Según los de la 2C, con tanta claridad no se distingue nada hasta dejar todo a oscuras.',
+    };
+  }
+  if (phase === 'ESTADO_5' && unlockedObjects.objeto_profesor) {
+    return {
+      stageTag: 'Rumor VI',
+      title: 'El mecanismo de la caja antigua',
+      whisper: 'En secretaría dicen que esa cerradura solo cede si se mantiene completamente nivelada.',
+    };
+  }
+  return PHASE_INDICATORS[phase];
+}
+
+export const POST_CHALLENGE_DIALOGUES: Record<SensorChallengeType, DialoguePayload> = {
+  touch_closet: {
+    markerId: 'objeto_armario',
+    speakerName: 'Hoja de Cuaderno',
+    speakerRole: 'Nota doblada entre las escobas',
+    lines: [
+      'Es una hoja cuadriculada escrita con prisa, como si dos compañeros se la hubieran pasado durante la clase:',
+      '"Oye, me acaban de contar unos chicos de la 1A que hoy temprano Hotaru vio quién se llevó la lista que falta mientras dejaba su bicicleta afuera, en el patio del fondo a la derecha."',
+    ],
+  },
+  shake_bikes: {
+    markerId: 'personaje_hotaru',
+    speakerName: 'Hotaru',
+    speakerRole: 'Estudiante · Zona de Bicicletas',
+    portraitUrl: PORTRAITS.hotaru,
+    lines: [
+      '¡Mira eso, de verdad habían quedado las huellas de lodo debajo de las hojas! Regresaron directo hacia el pasillo principal.',
+      '¿Escuchaste lo que cuentan sobre Kaeru? Unos compañeros de la 1B me dijeron que casi siempre se queda ahí afuera de su salón, justo donde colgaron esa campanita de vidrio.',
+    ],
+  },
+  mic_whisper: {
+    markerId: 'personaje_kaeru',
+    speakerName: 'Kaeru',
+    speakerRole: 'Estudiante · Pasillo frente a 1B',
+    portraitUrl: PORTRAITS.kaeru,
+    lines: [
+      'No lo puedo creer, ¡en serio se escuchó como si alguien subiera con prisa por las escaleras!',
+      'Ahora que lo pienso, los chicos de la 2D siempre dicen que cuando se pierde algo extraño en la escuela, termina enterándose Hanako allá arriba, en los baños que están pasando la 2C y la 2D.',
+    ],
+  },
+  light_hanako: {
+    markerId: 'personaje_hanako',
+    speakerName: 'Hanako',
+    speakerRole: 'Estudiante · Baños del 2° Piso',
+    portraitUrl: PORTRAITS.hanako,
+    lines: [
+      '¡Ya ves que tenían razón los de la 2C! En cuanto quedó todo oscuro se distinguió claramente lo que escribieron en el vidrio, y mira, hasta habían dejado esta llave pequeña en el borde.',
+      'Hace un momento escuché a unas chicas de la 2A comentar que al otro extremo de este piso, en la sala de profesores, hay un docente que guarda bajo llave los registros que no aparecieron en la entrada.',
+    ],
+  },
+  gyro_profesor: {
+    markerId: 'personaje_profesor',
+    speakerName: 'El Profesor',
+    speakerRole: 'Docente · Sala de Profesores',
+    portraitUrl: PORTRAITS.profesor,
+    lines: [
+      '¡Vaya, la abriste al primer intento! Mira aquí dentro: este es tu registro de inscripción, con razón no aparecías abajo; te asignaron al salón 2C, en este mismo piso.',
+      'Por cierto, hace un rato escuché a unos chicos comentar que la puerta de la 2C tenía trabado el seguro por fuera, pero decían que alguien dejó una pieza justo frente a la entrada para poder destrabarla.',
+    ],
+  },
 };
 
 export function resolveMarkerDialogue(
@@ -430,21 +584,20 @@ export function resolveMarkerDialogue(
       return {
         markerId,
         speakerName: 'Tsuki',
-        speakerRole: 'Compañera de Primer Año · Vestíbulo',
+        speakerRole: 'Estudiante · Entrada Principal',
         portraitUrl: PORTRAITS.tsuki,
         lines:
           phase === 'ESTADO_0'
             ? [
-                '¡Shhh! ¿Tú también eres nuevo y buscas el Aula 404? Miré todo el tablón del vestíbulo y esa aula fue arrancada del mapa.',
-                'Los alumnos mayores dicen que el Conserje custodia los objetos perdidos en el Armario de Limpieza.',
-                'Camina por el pasillo hacia la izquierda y cruza la puerta abierta al fondo del ala oeste.',
+                'Disculpa, ¿tú también eres de nuevo ingreso? Acabo de revisar de arriba abajo las listas de la 1A a la 1D y las de la 2A a la 2D, y parece que a varios no nos anotaron en ninguna.',
+                'Aunque hace un momento escuché a unos chicos de la 1C decir que cada vez que se extravía una lista el primer día, casi siempre termina en el cuarto de limpieza del fondo a la izquierda, donde suele estar el conserje.',
               ]
             : phase === 'ESTADO_FINAL'
             ? [
-                '¡Increíble, encontraste el sello del Aula 404! Sabía que tenías el sexto sentido necesario para esta escuela.',
+                '¡Oye, qué gusto verte! Por tu expresión me imagino que era cierto aquel rumor de los alumnos de segundo sobre los registros guardados.',
               ]
             : [
-                `Sigue las pistas con calma. Revisa el mapa arriba si te pierdes entre el Primer y Segundo Piso.`,
+                'Qué confusión en este primer día, ¿verdad? Unas chicas de la 2B comentaban hace rato que aquí uno se entera de todo prestando atención a lo que se dice en los pasillos.',
               ],
       };
     }
@@ -452,101 +605,118 @@ export function resolveMarkerDialogue(
     case 'objeto_vestibulo': {
       return {
         markerId,
-        speakerName: 'Tablón Escolar',
-        speakerRole: 'Registro de Aulas · Primer Piso',
+        speakerName: 'Tablero de Avisos',
+        speakerRole: 'Listas de Grupos · 1° Piso',
         lines: [
-          'Aulas del Primer Piso: 1A, 1B, 1C, 1D (Puertas cerradas durante la ceremonia).',
-          'Al final de la hoja hay una marca rasgada donde decía "Aula 404 — Consultar en el Armario de Limpieza (Ala Izquierda) o en Sala de Profesores (2° Piso)".',
+          'Hojas impresas sujetas al tablero: "Primer Piso: 1A, 1B, 1C y 1D. Segundo Piso: 2A, 2B, 2C y 2D."',
+          'Abajo falta una esquina arrancada y alguien escribió con lápiz al margen: "Escuché que el conserje recogió las hojas sueltas en el cuarto de limpieza, al fondo a la izquierda".',
         ],
       };
     }
 
+    // ================= PASO 1: CONSERJE & ARMARIO =================
     case 'personaje_conserje': {
       if (phase === 'ESTADO_0') {
         return {
           markerId,
           speakerName: 'El Conserje',
-          speakerRole: 'Guardián de Llaves y Pasillos',
+          speakerRole: 'Personal de Mantenimiento',
           portraitUrl: PORTRAITS.conserje,
           lines: [
-            '¿Otro estudiante perdido en su primer día buscando el Aula 404? Je... esta escuela no entrega sus secretos a quien solo camina mirando el suelo.',
-            'Escucha bien la regla: cada rincón guarda un rastro que solo responde a tus sentidos — el tacto, el movimiento, el aliento, la sombra y el equilibrio.',
-            'Anoche alguien escondió una nota sobre el objeto perdido dentro de ese Armario de Limpieza a mi derecha. Acércate al marcador del armario e inspecciónalo.',
+            '¿Todavía caminando por el pasillo? Mira que de la 1A a la 1D ya entraron todos... Bueno, no importa, seguro eres otro de los alumnos que no aparecieron en las listas de la entrada.',
+            'Yo no sé mucho de trámites de secretaría, pero ayer por la tarde escuché a dos chicos de la 1D murmurando aquí en la puerta que alguien había escondido un sobre detrás de las cubetas.',
+            'Comentaban en voz baja que ese armario viejo de madera que está ahí a un lado tiene el seguro flojo, y decían que si alguien mete la mano y aparta un poco las escobas, se encuentra enseguida.',
           ],
           advanceToPhase: 'ESTADO_1',
+          unlocksNpcTalkFlag: 'conserje',
+          unlocksObjectId: 'objeto_armario',
         };
       }
       if (phase === 'ESTADO_1') {
         return {
           markerId,
           speakerName: 'El Conserje',
-          speakerRole: 'Guardián de Llaves y Pasillos',
+          speakerRole: 'Personal de Mantenimiento',
           portraitUrl: PORTRAITS.conserje,
           lines: [
-            'No te quedes mirándonos... Acércate al marcador rojo del Armario de Limpieza aquí mismo y revísalo con cuidado.',
+            'Solo te repito lo que les oí decir a esos dos alumnos de la 1D: que habían dejado algo guardado entre los paños y las escobas de ese armario viejo de ahí al lado.',
           ],
+          unlocksObjectId: 'objeto_armario',
         };
       }
       return {
         markerId,
         speakerName: 'El Conserje',
-        speakerRole: 'Guardián de Llaves y Pasillos',
+        speakerRole: 'Personal de Mantenimiento',
         portraitUrl: PORTRAITS.conserje,
         lines: [
-          '¿Encontraste la nota de Hotaru? El Aparcabicicletas está en el extremo opuesto del Primer Piso, cruzando todo el pasillo hacia el ala derecha.',
+          '¿Así que era verdad que habían escondido una nota ahí dentro? Hoy temprano también escuché murmullos que venían del otro extremo de este piso, por el patio donde dejan las bicicletas.',
         ],
       };
     }
 
     case 'objeto_armario': {
-      if (phase !== 'ESTADO_1') {
+      if (phase !== 'ESTADO_1' || !spokenFlags.conserje) {
         return {
           markerId,
           speakerName: 'Armario de Limpieza',
-          speakerRole: 'Objeto en el Escenario',
+          speakerRole: 'Cuarto de Mantenimiento',
           lines:
-            phase === 'ESTADO_0'
-              ? ['El armario está cerrado con pestillo. Deberías hablar primero con el Conserje que está justo al lado.']
-              : ['Ya inspeccionaste el armario y recuperaste la nota que apunta hacia Hotaru en el Aparcabicicletas.'],
+            phase === 'ESTADO_0' || !spokenFlags.conserje
+              ? ['Un armario lleno de escobas y cubetas. El conserje está aquí mismo a unos pasos vigilando quién entra.']
+              : ['Ya no queda ningún papel escondido entre las escobas; solo olor a limpiador de pino y madera antigua.'],
         };
       }
-      return null; // Handled directly by touch_closet challenge modal!
+      return null;
     }
 
+    // ================= PASO 2: HOTARU & BICICLETAS =================
     case 'personaje_hotaru': {
       if (phase === 'ESTADO_0' || phase === 'ESTADO_1') {
         return {
           markerId,
           speakerName: 'Hotaru',
-          speakerRole: 'Estudiante del Patio Exterior',
+          speakerRole: 'Estudiante · Zona de Bicicletas',
           portraitUrl: PORTRAITS.hotaru,
           lines: [
-            'Las sombras están demasiado inquietas hoy... Aún no sé si puedo confiar en ti. Ve primero al Armario de Limpieza en el ala izquierda.',
+            'Uf, qué fresco está el aire aquí afuera... Oye, hace un momento pasaron unos compañeros de la 1C diciendo que el conserje se estaba quejando allá en el cuarto de limpieza del otro lado.',
           ],
         };
       }
       if (phase === 'ESTADO_2') {
+        if (spokenFlags.hotaru) {
+          return {
+            markerId,
+            speakerName: 'Hotaru',
+            speakerRole: 'Estudiante · Zona de Bicicletas',
+            portraitUrl: PORTRAITS.hotaru,
+            lines: [
+              'En serio, eso mismo contaban los chicos de la 2C: que hasta que no hubo una buena sacudida ahí donde están las bicicletas llenas de hojas, no se vio nada.',
+            ],
+            unlocksObjectId: 'objeto_hotaru',
+          };
+        }
         return {
           markerId,
           speakerName: 'Hotaru',
-          speakerRole: 'Estudiante del Patio Exterior',
+          speakerRole: 'Estudiante · Zona de Bicicletas',
           portraitUrl: PORTRAITS.hotaru,
           lines: [
-            '¿Traes la nota del armario? Entonces tú también buscas el objeto perdido del Aula 404...',
-            'Mira las bicicletas del cobertizo: un remolino de hojas pesadas y sellos bloquea el paso exterior.',
-            'Ayúdame a despejar el área sacudiendo tu dispositivo con fuerza junto a las bicicletas, y te diré a quién vi correr hacia los pasillos.',
+            '¿Esa nota salió del cuarto de limpieza? Es increíble lo rápido que corren los rumores entre los chicos de la 1A.',
+            'Mira, te soy sincero: hoy cuando llegué alcancé a ver a alguien salir deprisa de entre las bicicletas, pero el viento llenó todo el suelo de hojas secas y cubrió hacia dónde caminó.',
+            'De todos modos, el otro día escuché a unos compañeros de la 2C contar que el año pasado a un alumno se le cayó su credencial en ese mismo rincón, y dicen que solo apareció cuando sacudieron todo con fuerza hasta quitar el montón de hojas.',
           ],
           unlocksNpcTalkFlag: 'hotaru',
-          openChallenge: 'shake_bikes',
+          unlocksObjectId: 'objeto_hotaru',
         };
       }
       return {
         markerId,
         speakerName: 'Hotaru',
-        speakerRole: 'Estudiante del Patio Exterior',
+        speakerRole: 'Estudiante · Zona de Bicicletas',
         portraitUrl: PORTRAITS.hotaru,
         lines: [
-          'Gracias por despejar el cobertizo. Busca a Kaeru en el pasillo principal del Primer Piso, justo frente al Aula 1B.',
+          'Por lo que comentaban unos compañeros de la 1B hace un rato, Kaeru lleva toda la mañana en el pasillo principal, justo frente a su salón.',
         ],
       };
     }
@@ -555,59 +725,72 @@ export function resolveMarkerDialogue(
       if (phase !== 'ESTADO_2') {
         return {
           markerId,
-          speakerName: 'Aparcabicicletas',
-          speakerRole: 'Zona Exterior',
+          speakerName: 'Bicicletas con Hojas',
+          speakerRole: 'Patio Exterior',
           lines:
             phase === 'ESTADO_0' || phase === 'ESTADO_1'
-              ? ['Varias bicicletas escolares cubiertas de hojas secas. Todavía no sabes qué buscas aquí.']
-              : ['Las bicicletas ya están despejadas. Kaeru te espera cerca del Aula 1B.'],
+              ? ['Una fila de bicicletas estacionadas con bastantes hojas secas acumuladas en el suelo.']
+              : ['Las hojas secas quedaron esparcidas y se distinguen las huellas de lodo regresando hacia el pasillo.'],
         };
       }
       if (!spokenFlags.hotaru) {
         return {
           markerId,
-          speakerName: 'Aparcabicicletas',
-          speakerRole: 'Zona Exterior',
-          lines: ['Hotaru está justo a unos pasos observando las bicicletas. Habla con él primero.'],
+          speakerName: 'Bicicletas con Hojas',
+          speakerRole: 'Patio Exterior',
+          lines: ['Hay un estudiante detenido a unos pasos observando las bicicletas.'],
         };
       }
-      return null; // Opens shake_bikes sensor modal
+      return null;
     }
 
+    // ================= PASO 3: KAERU & CAMPANITA FRENTE A 1B =================
     case 'personaje_kaeru': {
       if (phase === 'ESTADO_0' || phase === 'ESTADO_1' || phase === 'ESTADO_2') {
         return {
           markerId,
           speakerName: 'Kaeru',
-          speakerRole: 'Vigía del Pasillo 1B',
+          speakerRole: 'Estudiante · Pasillo frente a 1B',
           portraitUrl: PORTRAITS.kaeru,
           lines: [
-            'El pasillo guarda silencio para quienes no traen pruebas... Resuelve primero el encargo de Hotaru en el Aparcabicicletas.',
+            'Qué silencioso se siente el pasillo con las puertas de la 1A a la 1D cerradas... Escuché que afuera, por el patio de las bicicletas, andaban comentando algo sobre unas hojas extraviadas.',
           ],
         };
       }
       if (phase === 'ESTADO_3') {
+        if (spokenFlags.kaeru) {
+          return {
+            markerId,
+            speakerName: 'Kaeru',
+            speakerRole: 'Estudiante · Pasillo frente a 1B',
+            portraitUrl: PORTRAITS.kaeru,
+            lines: [
+              'Solo te comparto lo que decían las chicas de la 1B: que como aquí adentro no corre aire, esa campanita de vidrio únicamente suena si alguien se acerca y sopla suavemente.',
+            ],
+            unlocksObjectId: 'objeto_kaeru',
+          };
+        }
         return {
           markerId,
           speakerName: 'Kaeru',
-          speakerRole: 'Vigía del Pasillo 1B',
+          speakerRole: 'Estudiante · Pasillo frente a 1B',
           portraitUrl: PORTRAITS.kaeru,
           lines: [
-            'Así que Hotaru te envió... Sí, escuché pasos subir hacia la planta alta llevando el cofre del Aula 404.',
-            'Pero las paredes de madera solo devuelven el eco a quien sabe hacerse oír.',
-            'Sopla o emite un sonido claro frente al micrófono para hacer resonar la campana del pasillo y escuchar el susurro.',
+            'Ah, ¿vienes de conversar con Hotaru allá afuera? Aquí entre la 1A y la 1B no se habla de otro tema más que de los alumnos nuevos que no aparecieron en ninguna lista.',
+            'Hace poco vi pasar a alguien con prisa doblando hacia las escaleras, pero iba hablando en voz tan baja que no alcancé a oír a qué parte subía.',
+            'Aunque, ¿sabes qué contaban ayer unas compañeras de la 1B? Decían que esa campanita de vidrio colgada aquí al lado guarda un eco muy curioso, y aseguran que si te acercas y soplas suave, parece repetirse el rastro del último que pasó.',
           ],
           unlocksNpcTalkFlag: 'kaeru',
-          openChallenge: 'mic_whisper',
+          unlocksObjectId: 'objeto_kaeru',
         };
       }
       return {
         markerId,
         speakerName: 'Kaeru',
-        speakerRole: 'Vigía del Pasillo 1B',
+        speakerRole: 'Estudiante · Pasillo frente a 1B',
         portraitUrl: PORTRAITS.kaeru,
         lines: [
-          'El susurro fue claro: usa cualquiera de las Escaleras amarillas para subir al Segundo Piso y ve a los Baños del ala derecha para hablar con Hanako.',
+          'Casi todos los de la 2C y la 2D coinciden en lo mismo: que arriba, en los baños del fondo a la derecha, Hanako siempre termina enterándose de quién guardó cada cosa.',
         ],
       };
     }
@@ -616,59 +799,72 @@ export function resolveMarkerDialogue(
       if (phase !== 'ESTADO_3') {
         return {
           markerId,
-          speakerName: 'Campana del Susurro',
-          speakerRole: 'Objeto Acústico · Aula 1B',
+          speakerName: 'Campanita de Vidrio',
+          speakerRole: 'Pasillo · Frente a 1B',
           lines:
             phase === 'ESTADO_4' || phase === 'ESTADO_5' || phase === 'ESTADO_FINAL'
-              ? ['La campana sigue vibrando suavemente señalando hacia las escaleras del Segundo Piso.']
-              : ['Una antigua campana de viento cuelga junto al Aula 1B.'],
+              ? ['La campanita sigue moviéndose levemente, como señalando en dirección a las escaleras.']
+              : ['Una campanita de viento colgada junto a la puerta cerrada del salón 1B.'],
         };
       }
       if (!spokenFlags.kaeru) {
         return {
           markerId,
-          speakerName: 'Campana del Susurro',
-          speakerRole: 'Objeto Acústico · Aula 1B',
-          lines: ['Kaeru custodia este tramo del pasillo junto al Aula 1B. Habla con él primero.'],
+          speakerName: 'Campanita de Vidrio',
+          speakerRole: 'Pasillo · Frente a 1B',
+          lines: ['Hay un estudiante apoyado en la pared justo al lado de la 1B.'],
         };
       }
-      return null; // Opens mic_whisper modal
+      return null;
     }
 
+    // ================= PASO 4: HANAKO & ESPEJO DE LOS BAÑOS =================
     case 'personaje_hanako': {
       if (phase !== 'ESTADO_4' && phase !== 'ESTADO_5' && phase !== 'ESTADO_FINAL') {
         return {
           markerId,
           speakerName: 'Hanako',
-          speakerRole: 'Espíritu de los Baños · 2° Piso',
+          speakerRole: 'Estudiante · Baños del 2° Piso',
           portraitUrl: PORTRAITS.hanako,
           lines: [
-            'Jijiji... ¿Subiste tan pronto sin escuchar el susurro de Kaeru en el Primer Piso? Regresa abajo primero.',
+            '¿Qué haces aquí arriba tan temprano? Hace un rato escuché a unos compañeros de la 2B comentar que abajo, frente a la 1B, todavía estaban tratando de averiguar hacia dónde habían ido.',
           ],
         };
       }
       if (phase === 'ESTADO_4') {
+        if (spokenFlags.hanako) {
+          return {
+            markerId,
+            speakerName: 'Hanako',
+            speakerRole: 'Estudiante · Baños del 2° Piso',
+            portraitUrl: PORTRAITS.hanako,
+            lines: [
+              'Recuerda lo que comentaban los chicos de la 2C: con el reflejo tan fuerte que entra aquí, en ese espejo de los lavabos no se alcanza a ver nada a menos que cubran toda la luz.',
+            ],
+            unlocksObjectId: 'objeto_hanako',
+          };
+        }
         return {
           markerId,
           speakerName: 'Hanako',
-          speakerRole: 'Espíritu de los Baños · 2° Piso',
+          speakerRole: 'Estudiante · Baños del 2° Piso',
           portraitUrl: PORTRAITS.hanako,
           lines: [
-            'Bienvenido a los baños del Segundo Piso... Sé exactamente dónde ocultaron la llave y el registro del Aula 404.',
-            'Pero este resplandor de las ventanas me ciega; mi reflejo solo puede escribir el secreto cuando reina la penumbra.',
-            'Cubre la cámara o la pantalla de tu celular, o busca un rincón oscuro para apagar la luz del espejo.',
+            'Jaja, así que tú eres el estudiante nuevo del que venían comentando las chicas de la 2D por todo el pasillo...',
+            '¿Ya te enteraste de lo que cuentan sobre el espejo grande aquí frente a los lavabos? Dicen que ayer alguien escribió con el dedo sobre el vapor hacia dónde llevaron las listas que faltaban.',
+            'El detalle es que entra tanta claridad que deslumbra todo el cristal; pero el otro día unos compañeros de la 2C aseguraban que cuando se bloquea la luz y queda bien oscuro, las letras vuelven a notarse solas.',
           ],
           unlocksNpcTalkFlag: 'hanako',
-          openChallenge: 'light_hanako',
+          unlocksObjectId: 'objeto_hanako',
         };
       }
       return {
         markerId,
         speakerName: 'Hanako',
-        speakerRole: 'Espíritu de los Baños · 2° Piso',
+        speakerRole: 'Estudiante · Baños del 2° Piso',
         portraitUrl: PORTRAITS.hanako,
         lines: [
-          'Ya tienes mi llave espiritual. Cruza todo el Segundo Piso hasta la Sala de Profesores en el ala izquierda.',
+          'Según les escuché decir a las chicas de la 2A, en la sala de profesores del otro extremo de este piso sigue estando el docente que guarda esos registros bajo llave.',
         ],
       };
     }
@@ -677,59 +873,72 @@ export function resolveMarkerDialogue(
       if (phase !== 'ESTADO_4') {
         return {
           markerId,
-          speakerName: 'Espejo de los Baños',
-          speakerRole: 'Objeto Sensible a la Luz · 2° Piso',
+          speakerName: 'Espejo de los Lavabos',
+          speakerRole: 'Baños · 2° Piso',
           lines:
             phase === 'ESTADO_5' || phase === 'ESTADO_FINAL'
-              ? ['En el vaho del espejo aún se lee: "Sala de Profesores — Segundo Piso, Ala Izquierda".']
-              : ['Un espejo antiguo empañado frente a los lavabos.'],
+              ? ['En el cristal empañado todavía se alcanza a leer la referencia a la sala de profesores pasando la 2A.']
+              : ['El espejo grande frente a los lavabos refleja de lleno la luz del pasillo.'],
         };
       }
       if (!spokenFlags.hanako) {
         return {
           markerId,
-          speakerName: 'Espejo de los Baños',
-          speakerRole: 'Objeto Sensible a la Luz · 2° Piso',
-          lines: ['Hanako te observa junto a la entrada de los baños. Habla con ella antes de tocar el espejo.'],
+          speakerName: 'Espejo de los Lavabos',
+          speakerRole: 'Baños · 2° Piso',
+          lines: ['Una estudiante te observa con curiosidad desde la entrada de los baños.'],
         };
       }
-      return null; // Opens light_hanako modal
+      return null;
     }
 
+    // ================= PASO 5: PROFESOR & CAJA DEL ESCRITORIO =================
     case 'personaje_profesor': {
       if (phase !== 'ESTADO_5' && phase !== 'ESTADO_FINAL') {
         return {
           markerId,
           speakerName: 'El Profesor',
-          speakerRole: 'Sala de Profesores · 2° Piso',
+          speakerRole: 'Docente · Sala de Profesores',
           portraitUrl: PORTRAITS.profesor,
           lines: [
-            '¿Buscas tu asignación de aula sin haber reunido todas las pistas de la escuela? Vuelve cuando tengas la llave de Hanako.',
+            'Disculpa, todavía estoy ordenando las listas de la 2A a la 2D. Hace poco comentaban en secretaría que alguien había visto una llave pequeña extraviada al otro lado de este piso.',
           ],
         };
       }
       if (phase === 'ESTADO_5') {
+        if (spokenFlags.profesor) {
+          return {
+            markerId,
+            speakerName: 'El Profesor',
+            speakerRole: 'Docente · Sala de Profesores',
+            portraitUrl: PORTRAITS.profesor,
+            lines: [
+              'Tal como contaba el personal de secretaría: mientras esa caja del escritorio tenga aunque sea una ligera inclinación, el seguro interno no cede.',
+            ],
+            unlocksObjectId: 'objeto_profesor',
+          };
+        }
         return {
           markerId,
           speakerName: 'El Profesor',
-          speakerRole: 'Docente Titular · Sala de Profesores',
+          speakerRole: 'Docente · Sala de Profesores',
           portraitUrl: PORTRAITS.profesor,
           lines: [
-            'Has recorrido cada pasillo, escuchado susurros y atravesado la penumbra. Veo que traes la llave de Hanako.',
-            'El registro maestro del Aula 404 descansa dentro del Compartimento Sellado sobre el escritorio central.',
-            'Su mecanismo interno es un astrolabio de equilibrio: inclina tu celular con precisión usando el giroscopio hasta nivelar el sello y abrirlo.',
+            'Vaya, así que era cierto lo que comentaban en secretaría sobre un estudiante de nuevo ingreso preguntando desde la 1A hasta la 2D... y además apareció la llave pequeña que se había perdido.',
+            'Los registros de inscripción que quedaron fuera del tablero están guardados en esa caja antigua sobre el escritorio central, aunque debo advertirte que tiene su historia.',
+            'Cuentan los profesores más antiguos que el director anterior la mandó fabricar con unos anillos internos muy delicados, y dicen que a todos se les atascaba hasta que descubrieron que solo se abre si se sostiene completamente recta y nivelada.',
           ],
           unlocksNpcTalkFlag: 'profesor',
-          openChallenge: 'gyro_profesor',
+          unlocksObjectId: 'objeto_profesor',
         };
       }
       return {
         markerId,
         speakerName: 'El Profesor',
-        speakerRole: 'Docente Titular · Sala de Profesores',
+        speakerRole: 'Docente · Sala de Profesores',
         portraitUrl: PORTRAITS.profesor,
         lines: [
-          'Excelente trabajo. El compartimento está abierto y el emblema del Aula 404 te pertenece. ¡Bienvenido a tu primer día de clases!',
+          'En tu registro dice claramente que te corresponde el salón 2C, saliendo aquí al pasillo de este segundo piso. Dicen los alumnos que dejaron una pieza justo frente a esa puerta para quitarle el seguro.',
         ],
       };
     }
@@ -738,26 +947,28 @@ export function resolveMarkerDialogue(
       if (phase !== 'ESTADO_5') {
         return {
           markerId,
-          speakerName: 'Compartimento Sellado',
-          speakerRole: 'Resolución Final · Sala de Profesores',
+          speakerName: 'Caja del Escritorio',
+          speakerRole: 'Sala de Profesores · 2° Piso',
           lines:
             phase === 'ESTADO_FINAL'
-              ? ['El compartimento de madera lacada permanece abierto tras recuperar el pase del Aula 404.']
-              : ['Una caja lacada con nivel de equilibrio. Está bloqueada hasta reunir las cinco pistas previas.'],
+              ? ['La caja de madera quedó abierta sobre el escritorio después de alinear sus anillos.']
+              : ['Una caja cerrada sobre el escritorio central con unos anillos metálicos en la tapa.'],
         };
       }
       if (!spokenFlags.profesor) {
         return {
           markerId,
-          speakerName: 'Compartimento Sellado',
-          speakerRole: 'Resolución Final · Sala de Profesores',
-          lines: ['El Profesor aguarda junto al escritorio. Habla con él antes de manipular el compartimento.'],
+          speakerName: 'Caja del Escritorio',
+          speakerRole: 'Sala de Profesores · 2° Piso',
+          lines: ['El profesor está a unos pasos revisando unas carpetas.'],
         };
       }
-      return null; // Opens gyro_profesor modal
+      return null;
     }
 
     default:
       return null;
   }
 }
+
+

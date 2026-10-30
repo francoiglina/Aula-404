@@ -3,17 +3,18 @@ import {
   Camera,
   ChevronDown,
   ChevronUp,
+  DoorOpen,
   Hand,
   MessageCircle,
   RefreshCw,
   ArrowUpDown,
   SwitchCamera,
 } from 'lucide-react';
-import { WorldMarker } from '../types';
+import { PhaseIndicator, WorldMarker } from '../types';
 
 interface MobileControlsOverlayProps {
   nearbyMarker: WorldMarker | null;
-  objectiveText: string;
+  phaseIndicator: PhaseIndicator;
   cameraAllowed: boolean;
   onMoveInput: (x: number, y: number) => void;
   onInteract: () => void;
@@ -24,7 +25,7 @@ interface MobileControlsOverlayProps {
 
 export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
   nearbyMarker,
-  objectiveText,
+  phaseIndicator,
   cameraAllowed,
   onMoveInput,
   onInteract,
@@ -86,32 +87,40 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
       ? 'border-sky-400 bg-sky-500 text-stone-950 shadow-lg shadow-sky-950/60'
       : nearbyMarker.kind === 'escalera'
       ? 'border-amber-300 bg-amber-400 text-stone-950 shadow-lg shadow-amber-950/60'
+      : nearbyMarker.kind === 'puerta'
+      ? 'border-emerald-300 bg-emerald-500 text-stone-950 shadow-lg shadow-emerald-950/60'
       : 'border-rose-400 bg-rose-500 text-white shadow-lg shadow-rose-950/60'
     : 'border-stone-700 bg-stone-900/90 text-stone-400';
 
   return (
     <>
-      {/* Mobile Compact Objective Strip (only visible on extra-small screens where top bar hides center text) */}
-      <div className="pointer-events-none fixed top-15 left-3 right-3 z-10 flex justify-center sm:hidden">
-        <div className="rounded-xl border border-stone-800/90 bg-stone-950/88 px-3 py-1.5 text-[11px] text-stone-200 text-center max-w-md">
-          {objectiveText}
+      {/* Mobile Compact Enigmatic Phase Strip (visible on small mobile screens) */}
+      <div className="font-sans pointer-events-none fixed top-15 left-3 right-3 z-10 flex justify-center sm:hidden">
+        <div className="rounded-xl border border-stone-800/90 bg-stone-950/90 px-3.5 py-1.5 text-center max-w-md flex items-center gap-2">
+          <span className="font-mono-tech text-[10px] font-semibold uppercase tracking-wider text-amber-400 shrink-0">
+            {phaseIndicator.stageTag}
+          </span>
+          <span aria-hidden="true" className="text-stone-600">
+            ·
+          </span>
+          <span className="font-display text-xs font-medium text-stone-100 truncate">
+            {phaseIndicator.title}
+          </span>
         </div>
       </div>
 
-      {/* Nearby Contextual Prompt Banner above bottom dock */}
+      {/* Nearby Contextual Presence Banner */}
       {nearbyMarker && (
-        <div className="pointer-events-none fixed bottom-32 left-1/2 -translate-x-1/2 z-20 px-3 w-full max-w-sm flex justify-center">
+        <div className="font-sans pointer-events-none fixed bottom-32 left-1/2 -translate-x-1/2 z-20 px-3 w-full max-w-sm flex justify-center">
           <div className="rounded-2xl border border-stone-700 bg-stone-950/92 px-4 py-2 text-center shadow-xl">
-            <p className="text-xs font-bold text-stone-50">{nearbyMarker.label}</p>
-            <p className="text-[11px] text-stone-300">
-              {nearbyMarker.sublabel} · Pulsa el botón derecho
-            </p>
+            <p className="text-xs font-semibold text-stone-50">{nearbyMarker.label}</p>
+            <p className="text-[11px] font-normal text-stone-300">{nearbyMarker.sublabel}</p>
           </div>
         </div>
       )}
 
       {/* LEFT OVERLAY: Console-Style Circular Virtual Analog Stick */}
-      <div className="pointer-events-auto fixed bottom-5 left-5 z-20 flex flex-col items-center gap-1.5">
+      <div className="font-sans pointer-events-auto fixed bottom-5 left-5 z-20 flex flex-col items-center gap-1.5">
         <div
           ref={stickZoneRef}
           onPointerDown={handleStickDown}
@@ -138,7 +147,7 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
       </div>
 
       {/* CENTER COLLAPSIBLE UTILITY DOCK (SDD 4.2 Camera/Gyro/Photo Tools) */}
-      <div className="pointer-events-auto fixed bottom-5 left-1/2 -translate-x-1/2 z-20 hidden md:flex flex-col items-center">
+      <div className="font-sans pointer-events-auto fixed bottom-5 left-1/2 -translate-x-1/2 z-20 hidden md:flex flex-col items-center">
         <button
           type="button"
           onClick={() => setDockExpanded((v) => !v)}
@@ -152,7 +161,7 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
           ) : (
             <>
               <ChevronUp className="h-3.5 w-3.5" />
-              <span> Sensores y Cámara</span>
+              <span>Sensores y Cámara</span>
             </>
           )}
         </button>
@@ -162,7 +171,7 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
             <button
               type="button"
               onClick={onResetCamera}
-              className="min-h-[40px] px-3 rounded-xl border border-stone-800 bg-stone-900 text-xs font-semibold text-stone-200 hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              className="min-h-[40px] px-3 rounded-xl border border-stone-800 bg-stone-900 text-xs font-medium text-stone-200 hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
             >
               <RefreshCw className="h-3.5 w-3.5 text-amber-400" />
               <span>Centrar Vista</span>
@@ -172,7 +181,7 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
               <button
                 type="button"
                 onClick={onSwitchCamera}
-                className="min-h-[40px] px-3 rounded-xl border border-stone-800 bg-stone-900 text-xs font-semibold text-stone-200 hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                className="min-h-[40px] px-3 rounded-xl border border-stone-800 bg-stone-900 text-xs font-medium text-stone-200 hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
               >
                 <SwitchCamera className="h-3.5 w-3.5 text-rose-400" />
                 <span>Cambiar Lente</span>
@@ -182,7 +191,7 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
             <button
               type="button"
               onClick={onCapturePhoto}
-              className="min-h-[40px] px-3 rounded-xl border border-stone-800 bg-stone-900 text-xs font-semibold text-stone-200 hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              className="min-h-[40px] px-3 rounded-xl border border-stone-800 bg-stone-900 text-xs font-medium text-stone-200 hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
             >
               <Camera className="h-3.5 w-3.5 text-sky-400" />
               <span>Capturar Foto</span>
@@ -212,7 +221,7 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
       </div>
 
       {/* RIGHT OVERLAY: Dedicated Single Action / Interact Button */}
-      <div className="pointer-events-auto fixed bottom-5 right-5 z-20 flex flex-col items-center gap-1.5">
+      <div className="font-sans pointer-events-auto fixed bottom-5 right-5 z-20 flex flex-col items-center gap-1.5">
         <button
           type="button"
           onClick={onInteract}
@@ -224,6 +233,8 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
             <MessageCircle className="h-7 w-7" />
           ) : nearbyMarker?.kind === 'escalera' ? (
             <ArrowUpDown className="h-7 w-7" />
+          ) : nearbyMarker?.kind === 'puerta' ? (
+            <DoorOpen className="h-7 w-7" />
           ) : (
             <Hand className="h-7 w-7" />
           )}
@@ -235,11 +246,15 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
                 ? nearbyMarker.targetFloor === 2
                   ? 'Subir'
                   : 'Bajar'
+                : nearbyMarker.kind === 'puerta'
+                ? 'Abrir Puerta'
                 : 'Examinar'
               : 'Acción'}
           </span>
         </button>
-        <span className="text-[11px] font-medium text-stone-400">Interactuar</span>
+        <span className="text-[11px] font-medium text-stone-400">
+          {nearbyMarker?.kind === 'puerta' ? 'Entrar al salón' : 'Interactuar'}
+        </span>
       </div>
     </>
   );

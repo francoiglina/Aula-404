@@ -4,7 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { WALKABLE_ZONES, WORLD_MARKERS } from '../data/gameContent';
 import { sensorService } from '../services/sensorService';
 import { soundEngine } from '../services/soundEngine';
-import { FloorNumber, GamePhase, WalkableRect, WorldMarker } from '../types';
+import { FinalSubstate, FloorNumber, GamePhase, WalkableRect, WorldMarker } from '../types';
 import {
   createCharacterStandeeTexture,
   createLockerTexture,
@@ -18,7 +18,6 @@ import {
 interface EngineCallbacks {
   onNearbyMarkerChange: (marker: WorldMarker | null) => void;
   onZoneNameChange: (zoneName: string) => void;
-  onMarkerTapped: (marker: WorldMarker) => void;
   onPlayerMove?: (pos: { x: number; z: number; yaw: number; floor: FloorNumber }) => void;
 }
 
@@ -38,6 +37,8 @@ const _moveVec = new THREE.Vector3();
 const _camEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _dummyObj = new THREE.Object3D();
 const _pointerNdc = new THREE.Vector2();
+const _markerTargetPos = new THREE.Vector3();
+const _projectedNdc = new THREE.Vector3();
 
 function detectSoftwareWebGL(): boolean {
   try {
@@ -71,6 +72,8 @@ export class SchoolEngine {
 
   private currentFloor: FloorNumber = 1;
   private currentPhase: GamePhase = 'ESTADO_0';
+  private finalSubstate: FinalSubstate = 'pendiente';
+  private unlockedObjects = new Set<string>();
   private isPaused = false;
   private disposed = false;
 
@@ -85,7 +88,6 @@ export class SchoolEngine {
   private keyState: Record<string, boolean> = {};
   private activeLookPointerId: number | null = null;
   private lookLastPos = { x: 0, y: 0 };
-  private lookTapStart = { x: 0, y: 0, time: 0 };
 
   // Sensor-reactive 3D scene references
   private closetDoorPivot: THREE.Group | null = null;
@@ -104,6 +106,28 @@ export class SchoolEngine {
   private astrolabeOuterGimbal: THREE.Group | null = null;
   private astrolabeInnerGimbal: THREE.Group | null = null;
   private astrolabeLidPivot: THREE.Group | null = null;
+
+  // Destination classroom door (Salón 2C, 2° Piso) for final two-step sequence
+  private destDoorGroup: THREE.Group | null = null;
+  private destDoorPanel: THREE.Mesh | null = null;
+  private destDoorMat: THREE.MeshStandardMaterial | null = null;
+  private destDoorPlaqueMat: THREE.MeshBasicMaterial | null = null;
+  private destDoorLockedTex: THREE.CanvasTexture | null = null;
+  private destDoorUnlockedTex: THREE.CanvasTexture | null = null;
+  private destPlaqueLockedTex: THREE.CanvasTexture | null = null;
+  private destPlaqueUnlockedTex: THREE.CanvasTexture | null = null;
+  private destDoorThresholdRing: THREE.Mesh | null = null;
+
+  private readonly destinationDoorMarker: WorldMarker = {
+    id: 'puerta_aula_destino',
+    kind: 'puerta',
+    glbFile: '',
+    label: 'Puerta del Salón 2C',
+    sublabel: 'Puerta desbloqueada · Entrar al salón',
+    floor: 2,
+    position: [10.8, 0, 2.26],
+    requiredPhase: 'ESTADO_FINAL',
+  };
 
   private lastNearbyId: string | null = null;
   private lastZoneName = '';
@@ -475,13 +499,24 @@ export class SchoolEngine {
     // Closed Classroom Doors along South Corridor (1A-1D on 1F, 2A-2D on 2F)
     const prefix = floor === 1 ? '1' : '2';
     const classrooms = [
-      { label: `Aula ${prefix}A`, x: -18.2 },
-      { label: `Aula ${prefix}B`, x: -10.8 },
-      { label: `Aula ${prefix}C`, x: 10.8 },
-      { label: `Aula ${prefix}D`, x: 18.2 },
+      { code: `${prefix}A`, label: `Salón ${prefix}A`, x: -18.2 },
+      { code: `${prefix}B`, label: `Salón ${prefix}B`, x: -10.8 },
+      { code: `${prefix}C`, label: `Salón ${prefix}C`, x: 10.8 },
+      { code: `${prefix}D`, label: `Salón ${prefix}D`, x: 18.2 },
     ];
     classrooms.forEach((cls) => {
-      this.addClassroomDoor(group, cls.x, 2.26, Math.PI, cls.label, false, mats.maxAniso, mats.cedarTimberMat);
+      const isDestinationDoor = floor === 2 && cls.code === '2C';
+      this.addClassroomDoor(
+        group,
+        cls.x,
+        2.26,
+        Math.PI,
+        cls.label,
+        false,
+        mats.maxAniso,
+        mats.cedarTimberMat,
+        isDestinationDoor
+      );
     });
 
     // Staircase Pockets (West x = -23.3, East x = 24.7)
@@ -649,7 +684,8 @@ export class SchoolEngine {
     label: string,
     isOpen: boolean,
     maxAniso: number,
-    frameMat: THREE.Material
+    frameMat: THREE.Material,
+    isDestinationDoor = false
   ) {
     const doorGroup = new THREE.Group();
     doorGroup.position.set(x, 0, z);
@@ -662,8 +698,30 @@ export class SchoolEngine {
       metalness: 0.05,
     });
 
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(1.65, 2.45, 0.08), doorMat);
-    panel.position.set(0, 1.225, 0.02);
+    if (isDestinationDoor) {
+      // Warm sunlit classroom doorway backdrop revealed when the sliding panel unlocks
+      const portalFrame = new THREE.Mesh(
+        new THREE.BoxGeometry(1.76, 2.52, 0.03),
+        frameMat
+      );
+      portalFrame.position.set(0, 1.26, 0.005);
+      doorGroup.add(portalFrame);
+
+      const interiorGlow = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.56, 2.38),
+        new THREE.MeshStandardMaterial({
+          color: '#fef3c7',
+          emissive: '#f59e0b',
+          emissiveIntensity: 0.55,
+          roughness: 0.35,
+        })
+      );
+      interiorGlow.position.set(0, 1.225, 0.022);
+      doorGroup.add(interiorGlow);
+    }
+
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(1.65, 2.45, 0.06), doorMat);
+    panel.position.set(0, 1.225, isDestinationDoor ? 0.055 : 0.02);
     doorGroup.add(panel);
 
     // Protruding Japanese hallway room plaque perpendicular to wall
@@ -671,12 +729,59 @@ export class SchoolEngine {
     signArm.position.set(1.05, 2.55, 0.25);
     doorGroup.add(signArm);
 
-    const plaqueTex = createMarkerPlaqueTexture(label, isOpen ? 'Abierta' : 'Cerrada', isOpen ? '#22c55e' : '#ef4444');
-    const plaqueMat = new THREE.MeshBasicMaterial({ map: plaqueTex, side: THREE.DoubleSide, transparent: true });
+    const plaqueTex = createMarkerPlaqueTexture(
+      label,
+      isOpen ? 'Abierta' : 'Cerrada',
+      isOpen ? '#22c55e' : '#ef4444'
+    );
+    const plaqueMat = new THREE.MeshBasicMaterial({
+      map: plaqueTex,
+      side: THREE.DoubleSide,
+      transparent: true,
+    });
     const plaque = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.22), plaqueMat);
     plaque.position.set(1.05, 2.38, 0.34);
     plaque.rotation.y = Math.PI / 2;
     doorGroup.add(plaque);
+
+    if (isDestinationDoor) {
+      this.destDoorGroup = doorGroup;
+      this.destDoorPanel = panel;
+      this.destDoorMat = doorMat;
+      this.destDoorPlaqueMat = plaqueMat;
+      this.destDoorLockedTex = tex;
+      this.destDoorUnlockedTex = createSlidingDoorTexture(label, true, maxAniso);
+      this.destPlaqueLockedTex = plaqueTex;
+      this.destPlaqueUnlockedTex = createMarkerPlaqueTexture(label, 'Abierta', '#22c55e');
+
+      // Subtle emerald threshold ring on the hallway floor when unlocked
+      const thresholdRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.52, 0.68, 32),
+        new THREE.MeshBasicMaterial({
+          color: '#10b981',
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.9,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+        })
+      );
+      thresholdRing.rotation.x = -Math.PI / 2;
+      thresholdRing.position.set(0, 0.022, 0.42);
+      thresholdRing.visible = false;
+      doorGroup.add(thresholdRing);
+      this.destDoorThresholdRing = thresholdRing;
+
+      // Invisible DoubleSide collider proxy on the door frame for reliable close/mid-range raycasting
+      const doorHitBox = new THREE.Mesh(
+        new THREE.BoxGeometry(2.1, 2.65, 0.9),
+        new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })
+      );
+      doorHitBox.position.set(0, 1.32, 0.25);
+      doorHitBox.userData = { markerId: 'puerta_aula_destino', isDestinationDoor: true };
+      doorGroup.add(doorHitBox);
+    }
 
     group.add(doorGroup);
   }
@@ -1324,10 +1429,10 @@ export class SchoolEngine {
       labelSprite.position.y = marker.kind === 'personaje' ? 2.48 : 1.85;
       root.add(labelSprite);
 
-      // Simplified invisible cylinder proxy for fast mobile tap raycasting
+      // Simplified invisible cylinder proxy (DoubleSide so close-range internal rays hit cleanly)
       const hitProxy = new THREE.Mesh(
         new THREE.CylinderGeometry(0.75, 0.75, 2.4, 8),
-        new THREE.MeshBasicMaterial({ visible: false })
+        new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })
       );
       hitProxy.position.y = 1.2;
       hitProxy.userData = { markerId: marker.id };
@@ -1349,6 +1454,8 @@ export class SchoolEngine {
         hitProxy,
       });
     });
+
+    this.syncMarkerVisibility();
   }
 
   private async tryAttachOptionalGlb(
@@ -1395,6 +1502,67 @@ export class SchoolEngine {
 
   public setGamePhase(phase: GamePhase) {
     this.currentPhase = phase;
+    this.syncDestinationDoorVisuals();
+    this.syncMarkerVisibility();
+    this.updateZoneAndProximity();
+  }
+
+  public setFinalSubstate(substate: FinalSubstate) {
+    this.finalSubstate = substate;
+    this.syncDestinationDoorVisuals();
+    this.syncMarkerVisibility();
+    this.updateZoneAndProximity();
+  }
+
+  public setUnlockedObjects(objectIds: string[]) {
+    this.unlockedObjects = new Set(objectIds);
+    this.syncMarkerVisibility();
+    this.updateZoneAndProximity();
+  }
+
+  private syncDestinationDoorVisuals() {
+    const isDoorUnlocked =
+      this.currentPhase === 'ESTADO_FINAL' &&
+      (this.finalSubstate === 'puerta_desbloqueada' || this.finalSubstate === 'completada');
+
+    if (this.destDoorMat && this.destDoorLockedTex && this.destDoorUnlockedTex) {
+      const targetTex = isDoorUnlocked ? this.destDoorUnlockedTex : this.destDoorLockedTex;
+      if (this.destDoorMat.map !== targetTex) {
+        this.destDoorMat.map = targetTex;
+        this.destDoorMat.needsUpdate = true;
+      }
+    }
+
+    if (this.destDoorPlaqueMat && this.destPlaqueLockedTex && this.destPlaqueUnlockedTex) {
+      const targetPlaque = isDoorUnlocked ? this.destPlaqueUnlockedTex : this.destPlaqueLockedTex;
+      if (this.destDoorPlaqueMat.map !== targetPlaque) {
+        this.destDoorPlaqueMat.map = targetPlaque;
+        this.destDoorPlaqueMat.needsUpdate = true;
+      }
+    }
+
+    if (this.destDoorThresholdRing) {
+      this.destDoorThresholdRing.visible = isDoorUnlocked;
+    }
+  }
+
+  private isMarkerEnabledInWorld(marker: WorldMarker): boolean {
+    if (marker.id === 'objeto_puerta_destino') {
+      return this.currentPhase === 'ESTADO_FINAL' && this.finalSubstate === 'pendiente';
+    }
+    if (marker.kind === 'objeto' && marker.challengeType) {
+      return (
+        marker.requiredPhase === this.currentPhase &&
+        this.unlockedObjects.has(marker.id)
+      );
+    }
+    return true;
+  }
+
+  private syncMarkerVisibility() {
+    this.markersById.forEach((vis) => {
+      vis.root.visible = this.isMarkerEnabledInWorld(vis.marker);
+    });
   }
 
   public setMoveInput(x: number, y: number) {
@@ -1502,6 +1670,125 @@ export class SchoolEngine {
     this.camera.quaternion.setFromEuler(_camEuler);
   }
 
+  private checkMarkerRaycastAndDistance(vis: MarkerVisual): number | null {
+    const m = vis.marker;
+    if (m.floor !== this.currentFloor || !vis.root.visible) return null;
+    if (!this.isMarkerEnabledInWorld(m)) return null;
+
+    const dx = m.position[0] - this.playerPos.x;
+    const dz = m.position[2] - this.playerPos.z;
+    const distSq = dx * dx + dz * dz;
+    const maxDist = 2.6;
+    if (distSq > maxDist * maxDist) return null;
+
+    this.camera.updateMatrixWorld();
+    vis.root.updateMatrixWorld(true);
+
+    const prevFar = this.raycaster.far;
+    this.raycaster.far = maxDist + 0.45;
+
+    // 1. Raycast desde el centro de la cámara hacia el marcador (.glb + hitProxy)
+    _pointerNdc.set(0, 0);
+    this.raycaster.setFromCamera(_pointerNdc, this.camera);
+    if (this.raycaster.intersectObject(vis.root, true).length > 0) {
+      this.raycaster.far = prevFar;
+      return distSq;
+    }
+
+    // 2. Raycast proyectado dentro del campo visual frontal hacia el núcleo del marcador 3D
+    _markerTargetPos.set(m.position[0], 1.5, m.position[2]);
+    _projectedNdc.copy(_markerTargetPos).project(this.camera);
+
+    const inFrontViewport =
+      _projectedNdc.z > 0 &&
+      _projectedNdc.z < 1 &&
+      Math.abs(_projectedNdc.x) <= 0.86 &&
+      Math.abs(_projectedNdc.y) <= 0.86;
+
+    if (inFrontViewport) {
+      _pointerNdc.set(_projectedNdc.x, _projectedNdc.y);
+      this.raycaster.setFromCamera(_pointerNdc, this.camera);
+      const hit = this.raycaster.intersectObject(vis.root, true).length > 0;
+      this.raycaster.far = prevFar;
+      return hit ? distSq : null;
+    }
+
+    this.raycaster.far = prevFar;
+    return null;
+  }
+
+  private checkDestinationDoorRaycastAndDistance(): number | null {
+    const isDoorUnlocked =
+      this.currentFloor === 2 &&
+      this.currentPhase === 'ESTADO_FINAL' &&
+      (this.finalSubstate === 'puerta_desbloqueada' || this.finalSubstate === 'completada');
+
+    if (!isDoorUnlocked || !this.destDoorGroup) return null;
+
+    const doorPos = this.destinationDoorMarker.position;
+    const dx = doorPos[0] - this.playerPos.x;
+    const dz = doorPos[2] - this.playerPos.z;
+    const distSq = dx * dx + dz * dz;
+    const maxDoorDist = 2.85;
+    if (distSq > maxDoorDist * maxDoorDist) return null;
+
+    this.camera.updateMatrixWorld();
+    this.destDoorGroup.updateMatrixWorld(true);
+
+    const prevFar = this.raycaster.far;
+    this.raycaster.far = maxDoorDist + 0.55;
+
+    // 1. Raycast directo desde la retícula central hacia la geometría/hitbox de la puerta
+    _pointerNdc.set(0, 0);
+    this.raycaster.setFromCamera(_pointerNdc, this.camera);
+    if (this.raycaster.intersectObject(this.destDoorGroup, true).length > 0) {
+      this.raycaster.far = prevFar;
+      return distSq;
+    }
+
+    // 2. Raycast proyectado dentro del campo visual frontal hacia el centro de la puerta
+    _markerTargetPos.set(doorPos[0], 1.35, doorPos[2] - 0.12);
+    _projectedNdc.copy(_markerTargetPos).project(this.camera);
+
+    const inFrontViewport =
+      _projectedNdc.z > 0 &&
+      _projectedNdc.z < 1 &&
+      Math.abs(_projectedNdc.x) <= 0.88 &&
+      Math.abs(_projectedNdc.y) <= 0.88;
+
+    if (inFrontViewport) {
+      _pointerNdc.set(_projectedNdc.x, _projectedNdc.y);
+      this.raycaster.setFromCamera(_pointerNdc, this.camera);
+      const hit = this.raycaster.intersectObject(this.destDoorGroup, true).length > 0;
+      this.raycaster.far = prevFar;
+      return hit ? distSq : null;
+    }
+
+    this.raycaster.far = prevFar;
+    return null;
+  }
+
+  public validateActiveMarkerInteraction(): WorldMarker | null {
+    let closest: WorldMarker | null = null;
+    let bestDistSq = Infinity;
+
+    this.markersById.forEach((vis) => {
+      const dSq = this.checkMarkerRaycastAndDistance(vis);
+      if (dSq !== null && dSq < bestDistSq) {
+        bestDistSq = dSq;
+        closest = vis.marker;
+      }
+    });
+
+    const doorDistSq = this.checkDestinationDoorRaycastAndDistance();
+    if (doorDistSq !== null && doorDistSq < bestDistSq) {
+      bestDistSq = doorDistSq;
+      closest = this.destinationDoorMarker;
+    }
+
+    return closest;
+  }
+
   private updateZoneAndProximity() {
     const zone = this.isWalkable(this.playerPos.x, this.playerPos.z, this.currentFloor);
     if (zone && zone.name !== this.lastZoneName) {
@@ -1509,21 +1796,7 @@ export class SchoolEngine {
       this.callbacks.onZoneNameChange(zone.name);
     }
 
-    let closest: WorldMarker | null = null;
-    let bestDistSq = 3.1 * 3.1; // 3.1m comfortable interaction radius
-
-    for (let i = 0; i < WORLD_MARKERS.length; i++) {
-      const m = WORLD_MARKERS[i];
-      if (m.floor !== this.currentFloor) continue;
-      const dx = m.position[0] - this.playerPos.x;
-      const dz = m.position[2] - this.playerPos.z;
-      const dSq = dx * dx + dz * dz;
-      if (dSq < bestDistSq) {
-        bestDistSq = dSq;
-        closest = m;
-      }
-    }
-
+    const closest = this.validateActiveMarkerInteraction();
     const nextId = closest ? closest.id : null;
     if (nextId !== this.lastNearbyId) {
       this.lastNearbyId = nextId;
@@ -1534,7 +1807,7 @@ export class SchoolEngine {
   private updateReactiveWorldProps(delta: number, elapsed: number) {
     // 1. Animate markers gently & billboard character standees cleanly around Y
     this.markersById.forEach((vis) => {
-      if (vis.marker.floor !== this.currentFloor) return;
+      if (vis.marker.floor !== this.currentFloor || !vis.root.visible) return;
 
       vis.floatingCore.position.y = Math.sin(elapsed * 2.4 + vis.marker.position[0]) * 0.08;
       vis.floatingCore.rotation.y = elapsed * 1.1;
@@ -1545,13 +1818,31 @@ export class SchoolEngine {
         vis.standeeMesh.rotation.y = Math.atan2(dx, dz);
       }
 
-      // Highlight active object markers when their required phase matches!
+      // Highlight active unlocked mission object markers (and final door key object) with emerald ring
       if (vis.marker.kind === 'objeto' && vis.marker.requiredPhase) {
-        const isReady = vis.marker.requiredPhase === this.currentPhase;
+        const isReady =
+          vis.marker.id === 'objeto_puerta_destino'
+            ? this.currentPhase === 'ESTADO_FINAL' && this.finalSubstate === 'pendiente'
+            : vis.marker.requiredPhase === this.currentPhase &&
+              this.unlockedObjects.has(vis.marker.id);
         const ringMat = vis.ringMesh.material as THREE.MeshBasicMaterial;
         ringMat.color.set(isReady ? '#10b981' : '#f43f5e');
       }
     });
+
+    // Animate destination classroom door (Salón 2C) sliding ajar once unlocked
+    if (this.destDoorPanel && this.currentFloor === 2) {
+      const isDoorUnlocked =
+        this.currentPhase === 'ESTADO_FINAL' &&
+        (this.finalSubstate === 'puerta_desbloqueada' || this.finalSubstate === 'completada');
+      const targetSlideX = isDoorUnlocked ? 0.68 : 0;
+      this.destDoorPanel.position.x = THREE.MathUtils.damp(
+        this.destDoorPanel.position.x,
+        targetSlideX,
+        5.5,
+        delta
+      );
+    }
 
     // 2. Closet door opens slightly once inspected (ESTADO_2+)
     if (this.closetDoorPivot) {
@@ -1746,7 +2037,6 @@ export class SchoolEngine {
     if (this.activeLookPointerId !== null) return;
     this.activeLookPointerId = e.pointerId;
     this.lookLastPos = { x: e.clientX, y: e.clientY };
-    this.lookTapStart = { x: e.clientX, y: e.clientY, time: performance.now() };
     this.renderer.domElement.setPointerCapture?.(e.pointerId);
   };
 
@@ -1764,34 +2054,6 @@ export class SchoolEngine {
   private handlePointerUp = (e: PointerEvent) => {
     if (e.pointerId !== this.activeLookPointerId) return;
     this.activeLookPointerId = null;
-
-    // Quick tap raycast on 3D markers (SDD Section 3.4 Touch Raycaster + Haptics)
-    const dist = Math.hypot(e.clientX - this.lookTapStart.x, e.clientY - this.lookTapStart.y);
-    const dt = performance.now() - this.lookTapStart.time;
-    if (dist < 12 && dt < 280) {
-      const rect = this.renderer.domElement.getBoundingClientRect();
-      _pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      _pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-      this.raycaster.setFromCamera(_pointerNdc, this.camera);
-      const hits = this.raycaster.intersectObjects(this.hitProxies, false);
-      for (let i = 0; i < hits.length; i++) {
-        const markerId = hits[i].object.userData?.markerId as string | undefined;
-        if (!markerId) continue;
-        const vis = this.markersById.get(markerId);
-        if (!vis || vis.marker.floor !== this.currentFloor) continue;
-
-        const dToPlayer = Math.hypot(
-          vis.marker.position[0] - this.playerPos.x,
-          vis.marker.position[2] - this.playerPos.z
-        );
-        if (dToPlayer <= 4.2) {
-          soundEngine.vibrate(30);
-          this.callbacks.onMarkerTapped(vis.marker);
-          break;
-        }
-      }
-    }
   };
 
   public dispose() {
@@ -1821,6 +2083,11 @@ export class SchoolEngine {
         }
       }
     });
+
+    this.destDoorLockedTex?.dispose();
+    this.destDoorUnlockedTex?.dispose();
+    this.destPlaqueLockedTex?.dispose();
+    this.destPlaqueUnlockedTex?.dispose();
 
     this.renderer.dispose();
   }

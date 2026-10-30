@@ -1,18 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowRight, Sparkles, X } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { soundEngine } from '../services/soundEngine';
 import { DialoguePayload } from '../types';
 
 interface DialogueOverlayProps {
   dialogue: DialoguePayload;
   onFinishDialogue: (dialogue: DialoguePayload) => void;
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 export const DialogueOverlay: React.FC<DialogueOverlayProps> = ({
   dialogue,
   onFinishDialogue,
-  onClose,
 }) => {
   const [lineIndex, setLineIndex] = useState(0);
   const [charCount, setCharCount] = useState(0);
@@ -57,85 +56,95 @@ export const DialogueOverlay: React.FC<DialogueOverlayProps> = ({
   };
 
   return (
-    <div className="pointer-events-auto fixed inset-0 z-30 flex items-end justify-center bg-black/55 p-3 sm:p-6">
-      <div className="w-full max-w-3xl rounded-3xl border border-stone-700 bg-stone-950/96 p-4 sm:p-6 shadow-2xl">
-        <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4 sm:gap-6">
-          {/* Character Sumi-e Portrait on Warm Washi Paper (#FAF6EE) */}
-          {dialogue.portraitUrl && (
-            <div className="w-32 sm:w-44 shrink-0 rounded-2xl border-2 border-stone-800 bg-[#FAF6EE] p-2 shadow-lg">
-              <div className="aspect-[3/4] w-full overflow-hidden rounded-xl bg-[#FAF6EE] flex items-center justify-center">
-                {!imgFailed ? (
-                  <img
-                    src={dialogue.portraitUrl}
-                    alt={dialogue.speakerName}
-                    referrerPolicy="no-referrer"
-                    onError={() => setImgFailed(true)}
-                    className="h-full w-full object-contain"
-                  />
-                ) : (
-                  <span className="font-display text-lg font-bold text-stone-800 text-center px-2">
-                    {dialogue.speakerName}
-                  </span>
-                )}
-              </div>
+    <div className="font-sans pointer-events-auto fixed inset-0 z-30 flex items-end justify-center bg-black/45 px-3 pb-4 pt-12 sm:px-6 sm:pb-7">
+      <div className="relative w-full max-w-3xl">
+        {/* Retrato del personaje posicionado DETRÁS (z-10) emergiendo sobre la solapa izquierda */}
+        {dialogue.portraitUrl && !imgFailed && (
+          <div
+            key={dialogue.portraitUrl}
+            className="animate-portrait-emerge pointer-events-none absolute left-2 sm:left-6 bottom-[54%] sm:bottom-[52%] z-10 h-56 w-40 sm:h-72 sm:w-52 max-h-[46vh] flex items-end justify-center"
+          >
+            {/* Halo atmosférico suave para contrastar las líneas de tinta sobre fondos 3D oscuros */}
+            <div
+              aria-hidden="true"
+              className="absolute inset-x-2 top-3 bottom-4 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(250,246,238,0.92)_0%,rgba(250,246,238,0.62)_48%,rgba(250,246,238,0)_76%)] blur-md"
+            />
+            <img
+              src={dialogue.portraitUrl}
+              alt={dialogue.speakerName}
+              referrerPolicy="no-referrer"
+              onError={() => setImgFailed(true)}
+              className="relative h-full w-full object-contain object-bottom [filter:drop-shadow(0_0_2px_rgba(250,246,238,0.98))_drop-shadow(0_0_6px_rgba(250,246,238,0.88))_drop-shadow(0_10px_20px_rgba(0,0,0,0.45))]"
+            />
+          </div>
+        )}
+
+        {/* Contenedor Text Box estilo Carpeta / Pestaña (z-20 por delante del retrato) */}
+        <div className="animate-folder-box-enter relative z-20 drop-shadow-[0_18px_38px_rgba(0,0,0,0.62)]">
+          {/* Solapa superior izquierda elevada con el nombre del personaje */}
+          <div className="relative z-10 -mb-px flex items-end">
+            <div className="h-9 sm:h-11 min-w-[164px] sm:min-w-[228px] max-w-[74%] rounded-tl-[24px] sm:rounded-tl-[28px] bg-[#48484b] pl-5 pr-3 sm:pl-7 sm:pr-4 flex items-center">
+              <h2 className="text-sm sm:text-base font-bold tracking-tight text-stone-100 whitespace-nowrap truncate">
+                {dialogue.speakerName}
+              </h2>
             </div>
-          )}
 
-          {/* Dialogue Text Box */}
-          <div className="flex-1 w-full flex flex-col justify-between min-h-[168px]">
-            <div>
-              <div className="flex items-start justify-between gap-3 border-b border-stone-800 pb-2.5">
-                <div>
-                  <h2 className="font-display text-xl sm:text-2xl font-bold text-stone-50">
-                    {dialogue.speakerName}
-                  </h2>
-                  <p className="text-xs text-amber-400 mt-0.5">{dialogue.speakerRole}</p>
-                </div>
+            {/* Curva en S continua que une la solapa con el cuerpo rectangular */}
+            <svg
+              viewBox="0 0 52 44"
+              aria-hidden="true"
+              className="h-9 sm:h-11 w-11 sm:w-[52px] -ml-px shrink-0 block text-[#48484b]"
+              preserveAspectRatio="none"
+            >
+              <path d="M 0,0 C 20,0 26,44 52,44 L 0,44 Z" fill="currentColor" />
+            </svg>
+          </div>
 
+          {/* Cuerpo rectangular gris oscuro con borde interior muy fino */}
+          <div className="rounded-tr-[7px] rounded-b-[7px] bg-[#48484b] p-[8px] sm:p-[10px]">
+            <div
+              onClick={handleAdvance}
+              className="relative border border-white/85 px-5 py-4 sm:px-7 sm:py-5 min-h-[136px] sm:min-h-[154px] flex flex-col justify-between cursor-pointer"
+            >
+              {/* Acento interior fino esquina superior derecha (fiel a la referencia) */}
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute top-[5px] right-[5px] h-px w-12 bg-gradient-to-l from-white/75 to-transparent"
+              />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute top-[5px] right-[5px] w-px h-9 bg-gradient-to-b from-white/75 to-transparent"
+              />
+
+              {/* Acento interior fino esquina inferior izquierda (fiel a la referencia) */}
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute bottom-[5px] left-[5px] h-px w-12 bg-gradient-to-r from-white/75 to-transparent"
+              />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute bottom-[5px] left-[5px] w-px h-9 bg-gradient-to-t from-white/75 to-transparent"
+              />
+
+              {/* Texto del diálogo */}
+              <p className="text-sm sm:text-base font-normal leading-relaxed text-stone-100 pr-1">
+                {currentFullLine.slice(0, charCount)}
+              </p>
+
+              {/* Botón único de Siguiente / avanzar */}
+              <div className="mt-3 flex justify-end">
                 <button
                   type="button"
-                  onClick={onClose}
-                  aria-label="Cerrar conversación"
-                  className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-800 bg-stone-900 text-stone-400 hover:text-stone-100 flex items-center justify-center cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAdvance();
+                  }}
+                  className="min-h-[40px] rounded-[5px] border border-white/80 bg-white/10 px-4 py-1.5 text-xs sm:text-sm font-semibold text-white hover:bg-white/20 active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
                 >
-                  <X className="h-4 w-4" />
+                  <span>Siguiente</span>
+                  <ArrowRight className="h-3.5 w-3.5 shrink-0" />
                 </button>
               </div>
-
-              <div
-                onClick={handleAdvance}
-                className="mt-3.5 min-h-[84px] text-sm sm:text-base leading-relaxed text-stone-100 cursor-pointer"
-              >
-                {currentFullLine.slice(0, charCount)}
-              </div>
-            </div>
-
-            <div className="mt-4 flex items-center justify-between gap-3 pt-2 border-t border-stone-800/80">
-              <span className="font-mono-tech text-xs text-stone-400">
-                 Diálogo {lineIndex + 1} / {dialogue.lines.length}
-              </span>
-
-              <button
-                type="button"
-                onClick={handleAdvance}
-                className="min-h-[44px] rounded-xl bg-amber-500 px-5 py-2.5 text-xs sm:text-sm font-bold text-stone-950 hover:bg-amber-400 active:scale-[0.98] transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap"
-              >
-                {isTyping ? (
-                  <span>Mostrar texto</span>
-                ) : !isLastLine ? (
-                  <>
-                    <span>Siguiente</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </>
-                ) : dialogue.openChallenge ? (
-                  <>
-                    <Sparkles className="h-4 w-4" />
-                    <span>Usar Sensor</span>
-                  </>
-                ) : (
-                  <span>Continuar</span>
-                )}
-              </button>
             </div>
           </div>
         </div>

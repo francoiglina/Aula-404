@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { BookOpen, CheckCircle2, Lock, Map as MapIcon, Navigation, X } from 'lucide-react';
 import { MAP_IMAGES } from '../data/gameContent';
-import { ClueRecord, FloorNumber } from '../types';
+import { ClueRecord, FloorNumber, PhaseIndicator } from '../types';
+
+const ROMAN_STEPS = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
 
 interface SchoolMapModalProps {
   initialTab: 'map' | 'clues';
   currentFloor: FloorNumber;
   playerCoords: { x: number; z: number; yaw: number; floor: FloorNumber };
   clues: ClueRecord[];
-  objectiveText: string;
+  phaseIndicator: PhaseIndicator;
   onClose: () => void;
 }
 
@@ -17,7 +19,7 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
   currentFloor,
   playerCoords,
   clues,
-  objectiveText,
+  phaseIndicator,
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<'map' | 'clues'>(initialTab);
@@ -29,7 +31,7 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
   const radarTopPct = Math.min(92, Math.max(8, ((playerCoords.z + 26) / 35) * 100));
 
   return (
-    <div className="pointer-events-auto fixed inset-0 z-40 flex items-center justify-center bg-black/75 p-3 sm:p-6 overflow-y-auto">
+    <div className="font-sans pointer-events-auto fixed inset-0 z-40 flex items-center justify-center bg-black/75 p-3 sm:p-6 overflow-y-auto">
       <div className="w-full max-w-3xl rounded-3xl border border-stone-700 bg-stone-950 p-4 sm:p-6 shadow-2xl my-auto">
         {/* Top Modal Header & Segmented Switcher */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-800 pb-3.5">
@@ -37,10 +39,10 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('map')}
-              className={`min-h-[38px] px-3.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+              className={`min-h-[38px] px-3.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
                 activeTab === 'map'
-                  ? 'bg-amber-500 text-stone-950'
-                  : 'text-stone-300 hover:text-stone-100'
+                  ? 'bg-amber-500 font-semibold text-stone-950'
+                  : 'font-medium text-stone-300 hover:text-stone-100'
               }`}
             >
               <MapIcon className="h-3.5 w-3.5" />
@@ -50,14 +52,14 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('clues')}
-              className={`min-h-[38px] px-3.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+              className={`min-h-[38px] px-3.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
                 activeTab === 'clues'
-                  ? 'bg-amber-500 text-stone-950'
-                  : 'text-stone-300 hover:text-stone-100'
+                  ? 'bg-amber-500 font-semibold text-stone-950'
+                  : 'font-medium text-stone-300 hover:text-stone-100'
               }`}
             >
               <BookOpen className="h-3.5 w-3.5" />
-              <span>Cuaderno de Pistas</span>
+              <span>Archivo de Rumores</span>
             </button>
           </div>
 
@@ -71,9 +73,20 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
           </button>
         </div>
 
-        {/* Active Objective Reminder */}
+        {/* Enigmatic Phase Whisper Banner */}
         <div className="mt-3 rounded-xl border border-stone-800 bg-stone-900/80 px-3.5 py-2.5 text-xs text-stone-200">
-          <strong className="text-amber-400">Objetivo actual:</strong> {objectiveText}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono-tech text-[11px] font-semibold uppercase tracking-wider text-amber-400">
+              {phaseIndicator.stageTag}
+            </span>
+            <span aria-hidden="true" className="text-stone-600">
+              ·
+            </span>
+            <strong className="font-display text-sm font-semibold text-stone-50">
+              {phaseIndicator.title}
+            </strong>
+          </div>
+          <p className="mt-1 font-normal text-stone-400">{phaseIndicator.whisper}</p>
         </div>
 
         {activeTab === 'map' ? (
@@ -166,19 +179,20 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
                     ) : (
                       <Lock className="h-4 w-4 text-stone-500 shrink-0" />
                     )}
-                    <h3 className="text-sm font-bold text-stone-100">
-                      0{clue.stepNumber}. {clue.unlocked ? clue.title : 'Pista aún sin descubrir'}
+                    <h3 className="text-sm font-semibold text-stone-100">
+                      Rumor {ROMAN_STEPS[clue.stepNumber] || clue.stepNumber} ·{' '}
+                      {clue.unlocked ? clue.title : 'Todavía sin confirmar'}
                     </h3>
                   </div>
-                  <span className="text-[11px] text-stone-400 whitespace-nowrap">
+                  <span className="text-[11px] font-medium text-stone-400 whitespace-nowrap">
                     {clue.sensorUsed}
                   </span>
                 </div>
 
-                <p className="mt-1.5 text-xs leading-relaxed text-stone-300">
+                <p className="mt-1.5 text-xs font-normal leading-relaxed text-stone-300">
                   {clue.unlocked
                     ? clue.summary
-                    : `Explora ${clue.location} siguiendo el orden de encuentros para desbloquear esta pista.`}
+                    : 'Todavía no escuchaste qué andan comentando por los pasillos sobre esto.'}
                 </p>
               </div>
             ))}

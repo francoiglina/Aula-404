@@ -7,9 +7,11 @@ export type GamePhase =
   | 'ESTADO_5'
   | 'ESTADO_FINAL';
 
+export type FinalSubstate = 'pendiente' | 'puerta_desbloqueada' | 'completada';
+
 export type FloorNumber = 1 | 2;
 
-export type MarkerKind = 'personaje' | 'objeto' | 'escalera';
+export type MarkerKind = 'personaje' | 'objeto' | 'escalera' | 'puerta';
 
 export type SensorChallengeType =
   | 'touch_closet'
@@ -97,6 +99,14 @@ export interface DialoguePayload {
   portraitUrl?: string;
   lines: string[];
   advanceToPhase?: GamePhase;
-  openChallenge?: SensorChallengeType;
+  unlocksObjectId?: string;
   unlocksNpcTalkFlag?: string;
 }
+
+export interface PhaseIndicator {
+  stageTag: string;
+  title: string;
+  whisper: string;
+}
+
+

@@ -8,9 +8,9 @@ import { SensorChallengeModal } from './components/SensorChallengeModal';
 import { TopSensorHud } from './components/TopSensorHud';
 import { WelcomePermissionsModal } from './components/WelcomePermissionsModal';
 import {
+  getPhaseIndicator,
   INITIAL_CLUES,
-  PHASE_OBJECTIVES,
-  PORTRAITS,
+  POST_CHALLENGE_DIALOGUES,
   resolveMarkerDialogue,
 } from './data/gameContent';
 import { sensorService } from './services/sensorService';
@@ -19,6 +19,7 @@ import { SchoolEngine } from './three/SchoolEngine';
 import {
   ClueRecord,
   DialoguePayload,
+  FinalSubstate,
   FloorNumber,
   GamePhase,
   SensorChallengeType,
@@ -31,10 +32,12 @@ export default function App() {
 
   const [isInitialized, setIsInitialized] = useState(false);
   const [phase, setPhase] = useState<GamePhase>('ESTADO_0');
+  const [finalSubstate, setFinalSubstate] = useState<FinalSubstate>('pendiente');
   const [currentFloor, setCurrentFloor] = useState<FloorNumber>(1);
   const [zoneName, setZoneName] = useState('Entrada Genkan (1° Piso)');
   const [nearbyMarker, setNearbyMarker] = useState<WorldMarker | null>(null);
   const [spokenFlags, setSpokenFlags] = useState<Record<string, boolean>>({});
+  const [unlockedObjects, setUnlockedObjects] = useState<Record<string, boolean>>({});
   const [clues, setClues] = useState<ClueRecord[]>(INITIAL_CLUES);
 
   // Overlays & Modals
@@ -60,8 +63,9 @@ export default function App() {
 
   // Mutable refs so Three.js callbacks never read stale React state
   const phaseRef = useRef<GamePhase>(phase);
+  const finalSubstateRef = useRef<FinalSubstate>(finalSubstate);
   const spokenFlagsRef = useRef<Record<string, boolean>>(spokenFlags);
-  const nearbyMarkerRef = useRef<WorldMarker | null>(nearbyMarker);
+  const unlockedObjectsRef = useRef<Record<string, boolean>>(unlockedObjects);
   const isBusyOverlayRef = useRef(false);
 
   useEffect(() => {
@@ -70,12 +74,19 @@ export default function App() {
   }, [phase]);
 
   useEffect(() => {
+    finalSubstateRef.current = finalSubstate;
+    engineRef.current?.setFinalSubstate(finalSubstate);
+  }, [finalSubstate]);
+
+  useEffect(() => {
     spokenFlagsRef.current = spokenFlags;
   }, [spokenFlags]);
 
   useEffect(() => {
-    nearbyMarkerRef.current = nearbyMarker;
-  }, [nearbyMarker]);
+    unlockedObjectsRef.current = unlockedObjects;
+    const enabledIds = Object.keys(unlockedObjects).filter((id) => unlockedObjects[id]);
+    engineRef.current?.setUnlockedObjects(enabledIds);
+  }, [unlockedObjects]);
 
   useEffect(() => {
     isBusyOverlayRef.current = Boolean(
@@ -122,7 +133,7 @@ export default function App() {
 
     soundEngine.playStairsTransition();
     setStairTransitionText(
-      nextFloor === 2 ? 'Subiendo al Segundo Piso...' : 'Bajando al Primer Piso...'
+      nextFloor === 2 ? 'Subiendo al segundo piso...' : 'Bajando al primer piso...'
     );
     setStairFadeOpaque(true);
 
@@ -153,25 +164,76 @@ export default function App() {
 
       soundEngine.playInteractTap();
       const curPhase = phaseRef.current;
+      const curFinalSub = finalSubstateRef.current;
       const curFlags = spokenFlagsRef.current;
+      const curUnlocked = unlockedObjectsRef.current;
 
-      // 2. Resolve dialogue or direct sensor challenge
+      // 2A. ESTADO_FINAL - Paso A: Interactuar con el marcador (.glb) frente a la puerta del aula destino
+      if (
+        marker.id === 'objeto_puerta_destino' &&
+        curPhase === 'ESTADO_FINAL' &&
+        curFinalSub === 'pendiente'
+      ) {
+        finalSubstateRef.current = 'puerta_desbloqueada';
+        setFinalSubstate('puerta_desbloqueada');
+        engineRef.current?.setFinalSubstate('puerta_desbloqueada');
+        soundEngine.playClueUnlocked();
+        soundEngine.vibrate(45);
+        showToast('Seguro destrabado · La puerta del salón 2C está desbloqueada');
+        return;
+      }
+
+      // 2B. ESTADO_FINAL - Paso B: Interactuar directamente con la puerta desbloqueada -> Mensaje final
+      if (
+        marker.id === 'puerta_aula_destino' &&
+        marker.kind === 'puerta' &&
+        curPhase === 'ESTADO_FINAL' &&
+        (curFinalSub === 'puerta_desbloqueada' || curFinalSub === 'completada')
+      ) {
+        finalSubstateRef.current = 'completada';
+        setFinalSubstate('completada');
+        engineRef.current?.setFinalSubstate('completada');
+        soundEngine.playClueUnlocked();
+        soundEngine.vibrate(60);
+        setShowEndingModal(true);
+        return;
+      }
+
+      // 3. Resolve character/object dialogue
       const dialogue = resolveMarkerDialogue(marker.id, curPhase, curFlags);
       if (dialogue) {
         setActiveDialogue(dialogue);
         return;
       }
 
-      // If resolveMarkerDialogue returned null, this object marker opens its sensor challenge directly
-      if (marker.challengeType) {
+      // 4. Sensor challenge activates ONLY when interacting with an enabled .glb object marker in range
+      if (
+        marker.kind === 'objeto' &&
+        marker.challengeType &&
+        marker.requiredPhase === curPhase &&
+        curUnlocked[marker.id]
+      ) {
         if (marker.challengeType === 'gyro_profesor') {
           void sensorService.enableGyroscope();
         }
         setActiveChallenge(marker.challengeType);
       }
     },
-    [triggerStairTransition]
+    [triggerStairTransition, showToast]
   );
+
+  // Controlador exclusivo del botón derecho de interacción del overlay (valida Raycast + Distancia en vivo)
+  const handleOverlayInteract = useCallback(() => {
+    if (isBusyOverlayRef.current) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+
+    const validatedMarker = engine.validateActiveMarkerInteraction();
+    if (!validatedMarker) return;
+
+    soundEngine.vibrate(30);
+    interactWithMarker(validatedMarker);
+  }, [interactWithMarker]);
 
   // Initialize Three.js SchoolEngine once on mount
   useEffect(() => {
@@ -181,7 +243,6 @@ export default function App() {
     const engine = new SchoolEngine(container, {
       onNearbyMarkerChange: (m) => setNearbyMarker(m),
       onZoneNameChange: (name) => setZoneName(name),
-      onMarkerTapped: (m) => interactWithMarker(m),
       onPlayerMove: (coords) => setPlayerCoords(coords),
     });
     engineRef.current = engine;
@@ -190,15 +251,15 @@ export default function App() {
       engine.dispose();
       engineRef.current = null;
     };
-  }, [interactWithMarker]);
+  }, []);
 
-  // Keyboard shortcuts for desktop testing (E to interact, M for map)
+  // Keyboard shortcuts for desktop testing (E triggers the same validated overlay action, M toggles map)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!isInitialized) return;
-      if (e.code === 'KeyE' && !isBusyOverlayRef.current && nearbyMarkerRef.current) {
+      if (e.code === 'KeyE' && !isBusyOverlayRef.current) {
         e.preventDefault();
-        interactWithMarker(nearbyMarkerRef.current);
+        handleOverlayInteract();
       } else if (e.code === 'KeyM' && !activeDialogue && !activeChallenge) {
         e.preventDefault();
         setMapModalTab((prev) => (prev ? null : 'map'));
@@ -206,7 +267,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isInitialized, activeDialogue, activeChallenge, interactWithMarker]);
+  }, [isInitialized, activeDialogue, activeChallenge, handleOverlayInteract]);
 
   const handleStartExperience = async (requestFullSensors: boolean) => {
     soundEngine.init();
@@ -215,9 +276,10 @@ export default function App() {
       setCameraAllowed(perms.cameraAllowed);
     }
     setIsInitialized(true);
-    showToast('Explora la escuela · Arrastra la pantalla para mirar y usa el stick para caminar');
+    showToast('Ya sonó el timbre y en los pasillos quedaron solo murmullos...');
   };
 
+  // Gestor de fin de diálogo: cierra la conversación, devuelve el control 3D y habilita el marcador del objeto
   const handleFinishDialogue = (dialogue: DialoguePayload) => {
     setActiveDialogue(null);
 
@@ -228,15 +290,17 @@ export default function App() {
     if (dialogue.advanceToPhase === 'ESTADO_1' && phase === 'ESTADO_0') {
       setPhase('ESTADO_1');
       unlockClueByStep(1);
-      soundEngine.playClueUnlocked();
-      showToast('Pista 1/6 · Inspecciona el Armario de Limpieza junto al Conserje');
     }
 
-    if (dialogue.openChallenge) {
-      if (dialogue.openChallenge === 'gyro_profesor') {
-        void sensorService.enableGyroscope();
+    if (dialogue.unlocksObjectId) {
+      const objectId = dialogue.unlocksObjectId;
+      const alreadyUnlocked = unlockedObjectsRef.current[objectId];
+      setUnlockedObjects((prev) => ({ ...prev, [objectId]: true }));
+
+      if (!alreadyUnlocked) {
+        soundEngine.playClueUnlocked();
+        showToast('Nuevo rumor anotado · Algo llamó tu atención aquí cerca');
       }
-      setActiveChallenge(dialogue.openChallenge);
     }
   };
 
@@ -249,58 +313,26 @@ export default function App() {
     if (completedType === 'touch_closet') {
       setPhase('ESTADO_2');
       unlockClueByStep(2);
-      setActiveDialogue({
-        markerId: 'objeto_armario',
-        speakerName: 'Nota del Armario',
-        speakerRole: 'Pista 2/6 Descubierta · Sensor Táctil',
-        lines: [
-          'Entre las escobas encontraste un sobre lacrado con una inscripción apresurada:',
-          '"Quien vio quién se llevó la placa del Aula 404 espera junto a las bicicletas del patio exterior. Ve al Aparcabicicletas en el ala derecha del Primer Piso y habla con Hotaru."',
-        ],
-      });
+      setActiveDialogue(POST_CHALLENGE_DIALOGUES.touch_closet);
     } else if (completedType === 'shake_bikes') {
       setPhase('ESTADO_3');
       unlockClueByStep(3);
-      setActiveDialogue({
-        markerId: 'personaje_hotaru',
-        speakerName: 'Hotaru',
-        speakerRole: 'Pista 3/6 Descubierta · Acelerómetro',
-        portraitUrl: PORTRAITS.hotaru,
-        lines: [
-          '¡El remolino de hojas se disipó! Mira las huellas de barro que salen del cobertizo...',
-          'Ahora lo recuerdo con claridad: fue Kaeru quien corrió hacia el interior. Búscalo en el Pasillo Principal del Primer Piso, justo frente al Aula 1B.',
-        ],
-      });
+      setActiveDialogue(POST_CHALLENGE_DIALOGUES.shake_bikes);
     } else if (completedType === 'mic_whisper') {
       setPhase('ESTADO_4');
       unlockClueByStep(4);
-      setActiveDialogue({
-        markerId: 'personaje_kaeru',
-        speakerName: 'Kaeru',
-        speakerRole: 'Pista 4/6 Descubierta · Micrófono',
-        portraitUrl: PORTRAITS.kaeru,
-        lines: [
-          '¿Escuchaste ese eco en la campana de cristal? La corriente de aire viene desde arriba.',
-          'Usa cualquiera de las Escaleras amarillas para subir al Segundo Piso. Entra a los Baños del ala derecha y pregunta por Hanako.',
-        ],
-      });
+      setActiveDialogue(POST_CHALLENGE_DIALOGUES.mic_whisper);
     } else if (completedType === 'light_hanako') {
       setPhase('ESTADO_5');
       unlockClueByStep(5);
-      setActiveDialogue({
-        markerId: 'personaje_hanako',
-        speakerName: 'Hanako',
-        speakerRole: 'Pista 5/6 Descubierta · Luz y Cámara',
-        portraitUrl: PORTRAITS.hanako,
-        lines: [
-          'En la penumbra todo se vuelve nítido... Toma esta llave espiritual reflejada en el espejo.',
-          'El Profesor custodia el compartimento final en la Sala de Profesores, al otro extremo del Segundo Piso (ala izquierda).',
-        ],
-      });
+      setActiveDialogue(POST_CHALLENGE_DIALOGUES.light_hanako);
     } else if (completedType === 'gyro_profesor') {
+      // No dispara la pantalla final aún: habilita el marcador .glb frente al salón destino (2C)
+      finalSubstateRef.current = 'pendiente';
+      setFinalSubstate('pendiente');
       setPhase('ESTADO_FINAL');
       unlockClueByStep(6);
-      setShowEndingModal(true);
+      setActiveDialogue(POST_CHALLENGE_DIALOGUES.gyro_profesor);
     }
   };
 
@@ -327,29 +359,33 @@ export default function App() {
     setShowEndingModal(false);
     setActiveDialogue(null);
     setActiveChallenge(null);
+    finalSubstateRef.current = 'pendiente';
+    setFinalSubstate('pendiente');
     setPhase('ESTADO_0');
     setSpokenFlags({});
+    setUnlockedObjects({});
     setClues(INITIAL_CLUES);
     setCurrentFloor(1);
+    engineRef.current?.setFinalSubstate('pendiente');
     engineRef.current?.setFloor(1, [-1.5, 0, 6.0], 0);
     showToast('Historia reiniciada · Primer día de clases');
   };
 
   const unlockedCluesCount = clues.filter((c) => c.unlocked).length;
+  const activePhaseIndicator = getPhaseIndicator(phase, unlockedObjects, finalSubstate);
 
   return (
-    <main className="relative h-full w-full overflow-hidden bg-stone-950 select-none">
+    <main className="font-sans relative h-full w-full overflow-hidden bg-stone-950 select-none">
       {/* Dedicated Isolated WebGL Canvas Container */}
       <div ref={canvasContainerRef} className="fixed inset-0 z-0 h-full w-full" />
 
-      {/* Top Navigation & Objective HUD */}
+      {/* Top Navigation & Enigmatic Phase HUD */}
       {isInitialized && (
         <TopSensorHud
           floor={currentFloor}
           zoneName={zoneName}
-          objectiveText={PHASE_OBJECTIVES[phase]}
+          phaseIndicator={activePhaseIndicator}
           unlockedCluesCount={unlockedCluesCount}
-          totalCluesCount={clues.length}
           isMuted={isMuted}
           onOpenMap={() => setMapModalTab('map')}
           onOpenClues={() => setMapModalTab('clues')}
@@ -375,12 +411,10 @@ export default function App() {
       {isInitialized && !activeDialogue && !activeChallenge && !showEndingModal && (
         <MobileControlsOverlay
           nearbyMarker={nearbyMarker}
-          objectiveText={PHASE_OBJECTIVES[phase]}
+          phaseIndicator={activePhaseIndicator}
           cameraAllowed={cameraAllowed}
           onMoveInput={(x, y) => engineRef.current?.setMoveInput(x, y)}
-          onInteract={() => {
-            if (nearbyMarker) interactWithMarker(nearbyMarker);
-          }}
+          onInteract={handleOverlayInteract}
           onResetCamera={() => {
             engineRef.current?.resetCameraView();
             showToast('Vista táctil centrada horizontalmente');
@@ -402,7 +436,7 @@ export default function App() {
         />
       )}
 
-      {/* Interactive Device Sensor Challenges (Steps 2–6) */}
+      {/* Interactive Device Sensor Challenges (Rastros II–VI) */}
       {activeChallenge && (
         <SensorChallengeModal
           challengeType={activeChallenge}
@@ -416,14 +450,14 @@ export default function App() {
         />
       )}
 
-      {/* Architectural Floor Maps (1F & 2F) + Clues Notebook */}
+      {/* Architectural Floor Maps (1F & 2F) + Rumors Archive */}
       {mapModalTab && (
         <SchoolMapModal
           initialTab={mapModalTab}
           currentFloor={currentFloor}
           playerCoords={playerCoords}
           clues={clues}
-          objectiveText={PHASE_OBJECTIVES[phase]}
+          phaseIndicator={activePhaseIndicator}
           onClose={() => setMapModalTab(null)}
         />
       )}
@@ -445,10 +479,12 @@ export default function App() {
             stairFadeOpaque ? 'opacity-100' : 'opacity-0'
           }`}
         >
-          <p className="font-display text-2xl font-bold text-stone-100 tracking-wide">
+          <p className="font-display text-2xl font-bold tracking-tight text-stone-100">
             {stairTransitionText}
           </p>
-          <p className="mt-1.5 text-xs text-amber-400">Escuela Tradicional · Aula 404</p>
+          <p className="mt-1.5 text-xs font-medium text-amber-400">
+            Escuela Tradicional · Aula 404
+          </p>
         </div>
       )}
 

@@ -155,12 +155,12 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
 
             if (lum < 60) {
               ctx.fillStyle = '#fb923c';
-              ctx.font = 'bold 18px Georgia, serif';
+              ctx.font = '700 17px "Inter", sans-serif';
               ctx.textAlign = 'center';
-              ctx.fillText('SALA DE PROFESORES · 2° PISO', canvas.width / 2, canvas.height / 2 - 4);
-              ctx.font = '13px monospace';
+              ctx.fillText('SALA DE PROFESORES', canvas.width / 2, canvas.height / 2 - 4);
+              ctx.font = '500 12px "Inter", sans-serif';
               ctx.fillStyle = '#fde68a';
-              ctx.fillText('ALA IZQUIERDA (LLAVE REVELADA)', canvas.width / 2, canvas.height / 2 + 18);
+              ctx.fillText('PASANDO LA 2A · FONDO IZQ.', canvas.width / 2, canvas.height / 2 + 18);
             }
           }
         }
@@ -241,24 +241,24 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
   };
 
   return (
-    <div className="pointer-events-auto fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4 overflow-y-auto">
+    <div className="font-sans pointer-events-auto fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4 overflow-y-auto">
       <div className="w-full max-w-lg rounded-3xl border border-stone-700 bg-stone-950 p-5 sm:p-6 shadow-2xl my-auto">
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-stone-800 pb-3.5">
           <div>
-            <p className="text-xs font-semibold text-amber-400">
-              {challengeType === 'touch_closet' && 'Paso 2 · Sensor Táctil y Respuesta Háptica'}
-              {challengeType === 'shake_bikes' && 'Paso 3 · Acelerómetro / Agitación (Shake)'}
-              {challengeType === 'mic_whisper' && 'Paso 4 · Micrófono (Web Audio API)'}
-              {challengeType === 'light_hanako' && 'Paso 5 · Sensor de Luz / Cámara WebRTC'}
-              {challengeType === 'gyro_profesor' && 'Paso 6 · Giroscopio / Nivelación Precisa'}
+            <p className="font-mono-tech text-[11px] font-semibold uppercase tracking-wider text-amber-400">
+              {challengeType === 'touch_closet' && 'Rumor II · Cuarto de Mantenimiento'}
+              {challengeType === 'shake_bikes' && 'Rumor III · Patio de Bicicletas'}
+              {challengeType === 'mic_whisper' && 'Rumor IV · Pasillo frente a 1B'}
+              {challengeType === 'light_hanako' && 'Rumor V · Baños del 2° Piso'}
+              {challengeType === 'gyro_profesor' && 'Rumor VI · Sala de Profesores'}
             </p>
-            <h2 className="mt-0.5 font-display text-xl sm:text-2xl font-bold text-stone-50">
-              {challengeType === 'touch_closet' && 'Inspección del Armario de Limpieza'}
-              {challengeType === 'shake_bikes' && 'Despejar el Aparcabicicletas'}
-              {challengeType === 'mic_whisper' && 'La Campana del Susurro'}
-              {challengeType === 'light_hanako' && 'El Espejo de la Penumbra'}
-              {challengeType === 'gyro_profesor' && 'Compartimento Sellado del Aula 404'}
+            <h2 className="mt-0.5 font-display text-xl sm:text-2xl font-bold tracking-tight text-stone-50">
+              {challengeType === 'touch_closet' && 'Armario de Limpieza'}
+              {challengeType === 'shake_bikes' && 'Bicicletas con Hojas'}
+              {challengeType === 'mic_whisper' && 'Campanita de Vidrio'}
+              {challengeType === 'light_hanako' && 'Espejo de los Lavabos'}
+              {challengeType === 'gyro_profesor' && 'Caja del Escritorio'}
             </h2>
           </div>
 
@@ -276,9 +276,9 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
         <div className="mt-5">
           {challengeType === 'touch_closet' && (
             <div className="space-y-4">
-              <p className="text-sm text-stone-300">
-                Toca directamente el interior del armario en tres pasos para abrir el pestillo,
-                apartar las escobas y recuperar la nota oculta.
+              <p className="text-sm font-normal leading-relaxed text-stone-300">
+                Toca el interior del armario en tres pasos para quitar el seguro, apartar las
+                escobas y sacar la nota escondida.
               </p>
 
               <button
@@ -290,14 +290,14 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                   <Hand className="h-8 w-8" />
                 </div>
                 <div>
-                  <p className="text-base font-bold text-stone-100">
-                    {closetStage === 0 && '1. Tocar para deslizar el pestillo de madera'}
+                  <p className="text-base font-semibold text-stone-100">
+                    {closetStage === 0 && '1. Tocar para quitar el seguro de madera'}
                     {closetStage === 1 && '2. Tocar para apartar las escobas y cubetas'}
-                    {closetStage === 2 && '3. Tocar el sobre lacrado entre los estantes'}
+                    {closetStage === 2 && '3. Tocar el sobre escondido entre los estantes'}
                     {closetStage === 3 && '¡Nota recuperada del armario!'}
                   </p>
-                  <p className="text-xs text-stone-400 mt-1">
-                    Retroalimentación háptica activa en dispositivos compatibles
+                  <p className="text-xs font-normal text-stone-400 mt-1">
+                    Vibración táctil activa en dispositivos compatibles
                   </p>
                 </div>
               </button>
@@ -306,9 +306,9 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
 
           {challengeType === 'shake_bikes' && (
             <div className="space-y-4">
-              <p className="text-sm text-stone-300">
-                Sacude tu celular varias veces con firmeza para dispersar el remolino de hojas secas
-                que cubre las bicicletas del patio.
+              <p className="text-sm font-normal leading-relaxed text-stone-300">
+                Sacude tu teléfono varias veces con firmeza para apartar las hojas secas acumuladas
+                debajo de las bicicletas.
               </p>
 
               <div className="rounded-2xl border border-stone-800 bg-stone-900/90 p-5 flex flex-col items-center gap-3">
@@ -319,9 +319,9 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                   className="h-12 w-12 text-amber-400 transition-transform"
                 />
                 <div className="w-full">
-                  <div className="flex justify-between text-xs text-stone-400 mb-1">
+                  <div className="flex justify-between text-xs font-normal text-stone-400 mb-1">
                     <span>Fuerza instantánea del acelerómetro</span>
-                    <span className="font-mono-tech text-stone-200">
+                    <span className="font-mono-tech font-semibold text-stone-200">
                       {Math.round(liveShake * 100)}%
                     </span>
                   </div>
@@ -336,7 +336,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                 <button
                   type="button"
                   onClick={() => sensorService.triggerSimulatedShake(0.92)}
-                  className="mt-2 min-h-[44px] w-full rounded-xl border border-stone-700 bg-stone-800 px-4 py-2.5 text-xs font-semibold text-stone-100 hover:bg-stone-700 active:scale-[0.98] transition-all cursor-pointer"
+                  className="mt-2 min-h-[44px] w-full rounded-xl border border-stone-700 bg-stone-800 px-4 py-2.5 text-xs font-medium text-stone-100 hover:bg-stone-700 active:scale-[0.98] transition-all cursor-pointer"
                 >
                   Sacudir Hojas (Toque / Simulador PC)
                 </button>
@@ -346,9 +346,9 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
 
           {challengeType === 'mic_whisper' && (
             <div className="space-y-4">
-              <p className="text-sm text-stone-300">
-                Sopla suavemente hacia el micrófono de tu celular (o emite un sonido continuo) para
-                hacer vibrar la campana espiritual frente al Aula 1B.
+              <p className="text-sm font-normal leading-relaxed text-stone-300">
+                Sopla suavemente hacia el micrófono de tu teléfono (o emite un sonido continuo) para
+                hacer sonar la campanita de vidrio frente al salón 1B.
               </p>
 
               <div className="rounded-2xl border border-stone-800 bg-stone-900/90 p-5 flex flex-col items-center gap-4">
@@ -365,7 +365,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                   })}
                 </div>
 
-                <p className="font-mono-tech text-xs text-stone-300">
+                <p className="font-mono-tech text-xs font-medium text-stone-300">
                   Nivel acústico detectado: {Math.round(liveVolume * 100)}%
                 </p>
 
@@ -377,7 +377,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                         const ok = await sensorService.requestMicrophone();
                         setMicGranted(ok);
                       }}
-                      className="flex-1 min-h-[44px] rounded-xl bg-sky-500 px-4 py-2 text-xs font-bold text-stone-950 hover:bg-sky-400 flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="flex-1 min-h-[44px] rounded-xl bg-sky-500 px-4 py-2 text-xs font-semibold text-stone-950 hover:bg-sky-400 flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <Mic className="h-4 w-4" />
                       <span>Permitir Micrófono</span>
@@ -388,7 +388,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                     type="button"
                     onPointerDown={() => sensorService.triggerSimulatedBlow(0.85, 2200)}
                     onClick={() => sensorService.triggerSimulatedBlow(0.85, 900)}
-                    className="flex-1 min-h-[44px] rounded-xl border border-stone-700 bg-stone-800 px-4 py-2 text-xs font-semibold text-stone-100 hover:bg-stone-700 active:scale-[0.98] cursor-pointer"
+                    className="flex-1 min-h-[44px] rounded-xl border border-stone-700 bg-stone-800 px-4 py-2 text-xs font-medium text-stone-100 hover:bg-stone-700 active:scale-[0.98] cursor-pointer"
                   >
                     Mantener o Pulsar para Soplar (Modo PC)
                   </button>
@@ -399,9 +399,9 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
 
           {challengeType === 'light_hanako' && (
             <div className="space-y-4">
-              <p className="text-sm text-stone-300">
-                Cubre con la palma de tu mano la cámara de tu celular (o apaga la luz del entorno)
-                hasta sumergir el espejo en la penumbra.
+              <p className="text-sm font-normal leading-relaxed text-stone-300">
+                Cubre con la palma de tu mano la cámara de tu teléfono (o apaga la luz del lugar)
+                hasta dejar el espejo a oscuras.
               </p>
 
               <div className="rounded-2xl border border-stone-800 bg-stone-900/90 p-4 flex flex-col items-center gap-3">
@@ -418,7 +418,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                     Luminosidad actual:
                   </span>
                   <span className="font-mono-tech font-semibold text-stone-100">
-                    {liveLuminance} / 255 {liveLuminance < 55 ? '(Penumbra Activa)' : '(Demasiada Luz)'}
+                    {liveLuminance} / 255 {liveLuminance < 55 ? '(Oscuridad Activa)' : '(Demasiada Luz)'}
                   </span>
                 </div>
 
@@ -430,7 +430,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                         const ok = await sensorService.requestCamera('environment');
                         setCamGranted(ok);
                       }}
-                      className="flex-1 min-h-[44px] rounded-xl bg-rose-500 px-3 py-2 text-xs font-bold text-white hover:bg-rose-400 flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="flex-1 min-h-[44px] rounded-xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-400 flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <Camera className="h-4 w-4" />
                       <span>Activar Cámara</span>
@@ -439,7 +439,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                     <button
                       type="button"
                       onClick={() => sensorService.toggleCameraFacing()}
-                      className="min-h-[44px] rounded-xl border border-stone-700 bg-stone-800 px-3 py-2 text-xs font-semibold text-stone-200 hover:bg-stone-700 flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="min-h-[44px] rounded-xl border border-stone-700 bg-stone-800 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-stone-700 flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <SwitchCamera className="h-4 w-4 text-rose-400" />
                       <span>Cambiar Lente</span>
@@ -457,7 +457,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                     onPointerLeave={() => {
                       sensorService.simulatedLuminance = null;
                     }}
-                    className="flex-1 min-h-[44px] rounded-xl border border-stone-700 bg-stone-800 px-3 py-2 text-xs font-semibold text-stone-100 hover:bg-stone-700 active:bg-stone-950 cursor-pointer"
+                    className="flex-1 min-h-[44px] rounded-xl border border-stone-700 bg-stone-800 px-3 py-2 text-xs font-medium text-stone-100 hover:bg-stone-700 active:bg-stone-950 cursor-pointer"
                   >
                     Mantener Cubierto (Simulador PC)
                   </button>
@@ -468,9 +468,9 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
 
           {challengeType === 'gyro_profesor' && (
             <div className="space-y-4">
-              <p className="text-sm text-stone-300">
-                Inclina suavemente tu celular (o arrastra el astrolabio en PC) para centrar la esfera
-                dorada dentro del anillo maestro y mantenla nivelada.
+              <p className="text-sm font-normal leading-relaxed text-stone-300">
+                Inclina suavemente tu teléfono (o arrastra el indicador en pantalla) para centrar el
+                círculo dorado en el centro y mantener la caja nivelada.
               </p>
 
               <div className="rounded-2xl border border-stone-800 bg-stone-900/90 p-5 flex flex-col items-center gap-3">
@@ -497,7 +497,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-2 w-full text-xs text-stone-400">
-                  <span className="font-mono-tech">
+                  <span className="font-mono-tech font-medium">
                     Inclinación X: {liveTilt.gamma.toFixed(1)}° · Y: {liveTilt.beta.toFixed(1)}°
                   </span>
 
@@ -512,7 +512,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                             sensorService.simulatedTilt = null;
                           }
                         }}
-                        className="min-h-[36px] px-3 rounded-lg bg-amber-500 text-xs font-bold text-stone-950 hover:bg-amber-400 flex items-center gap-1.5 cursor-pointer"
+                        className="min-h-[36px] px-3 rounded-lg bg-amber-500 text-xs font-semibold text-stone-950 hover:bg-amber-400 flex items-center gap-1.5 cursor-pointer"
                       >
                         <Compass className="h-3.5 w-3.5" />
                         <span>Activar Giroscopio</span>
@@ -527,7 +527,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                           sensorService.simulatedTilt = { beta: 0, gamma: 0 };
                         }
                       }}
-                      className="min-h-[36px] px-3 rounded-lg border border-stone-700 bg-stone-800 text-xs font-semibold text-stone-200 hover:bg-stone-700 flex items-center gap-1.5 cursor-pointer"
+                      className="min-h-[36px] px-3 rounded-lg border border-stone-700 bg-stone-800 text-xs font-medium text-stone-200 hover:bg-stone-700 flex items-center gap-1.5 cursor-pointer"
                     >
                       <RefreshCw className="h-3.5 w-3.5 text-amber-400" />
                       <span>Nivelar / Calibrar</span>
@@ -546,12 +546,12 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
               {completed ? (
                 <>
                   <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                  <span className="text-emerald-400">¡Pista desbloqueada!</span>
+                  <span className="text-emerald-400">¡Era cierto el rumor!</span>
                 </>
               ) : (
                 <>
                   <Compass className="h-4 w-4 text-amber-400" />
-                  <span>Progreso de sincronización</span>
+                  <span>Comprobando el rumor</span>
                 </>
               )}
             </span>

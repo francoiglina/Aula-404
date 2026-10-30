@@ -245,13 +245,13 @@ export function createSlidingDoorTexture(
   ctx.strokeRect(146, 275, 220, 74);
 
   ctx.fillStyle = '#1c1917';
-  ctx.font = 'bold 34px Georgia, serif';
+  ctx.font = '700 34px "Inter", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(roomLabel, 256, 304);
 
   ctx.fillStyle = isOpenDoor ? '#15803d' : '#b91c1c';
-  ctx.font = 'bold 16px sans-serif';
+  ctx.font = '600 16px "Inter", sans-serif';
   ctx.fillText(isOpenDoor ? 'ACCESO ABIERTO' : 'CERRADA', 256, 334);
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -285,12 +285,12 @@ export function createMarkerPlaqueTexture(
   ctx.stroke();
 
   ctx.fillStyle = '#faf6ee';
-  ctx.font = 'bold 34px "Plus Jakarta Sans", sans-serif';
+  ctx.font = '700 32px "Inter", sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText(title, 256, 72);
 
   ctx.fillStyle = accentHex;
-  ctx.font = '600 22px "Plus Jakarta Sans", sans-serif';
+  ctx.font = '600 21px "Inter", sans-serif';
   ctx.fillText(subtitle, 256, 114);
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -344,7 +344,7 @@ export function createCharacterStandeeTexture(
       ctx.restore();
     } else {
       ctx.fillStyle = '#44403c';
-      ctx.font = 'bold 46px Georgia, serif';
+      ctx.font = '700 44px "Inter", sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(characterName, 256, 360);
     }
@@ -353,7 +353,7 @@ export function createCharacterStandeeTexture(
     ctx.fillStyle = '#1c1917';
     ctx.fillRect(56, 666, 400, 54);
     ctx.fillStyle = '#faf6ee';
-    ctx.font = 'bold 28px Georgia, serif';
+    ctx.font = '700 27px "Inter", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(characterName.toUpperCase(), 256, 702);
   };
