@@ -66,11 +66,11 @@ export class SchoolEngine {
   private floor2Group = new THREE.Group();
   private markersById = new Map<string, MarkerVisual>();
   private hitProxies: THREE.Object3D[] = [];
+  private shoeLockerColliders: THREE.Box3[] = [];
   private raycaster = new THREE.Raycaster();
 
   private currentFloor: FloorNumber = 1;
   private currentPhase: GamePhase = 'ESTADO_0';
-  private gyroLookEnabled = false;
   private isPaused = false;
   private disposed = false;
 
@@ -418,22 +418,35 @@ export class SchoolEngine {
         color: '#4e331e',
         roughness: 0.5,
       });
+      this.shoeLockerColliders = [];
+      const bodyW = 1.1;
+      const bodyH = 1.75;
+      const bodyD = 3.4;
+
       [-2.95, 0, 2.95].forEach((lx) => {
         const island = new THREE.Group();
         island.position.set(lx, 0, 5.0);
-        const body = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.75, 3.8), lockerMat);
-        body.position.y = 0.875;
+        const body = new THREE.Mesh(new THREE.BoxGeometry(bodyW, bodyH, bodyD), lockerMat);
+        body.position.y = bodyH / 2;
         body.castShadow = !this.isSoftwareGl;
         island.add(body);
 
-        const cap = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 3.92), lockerTopMat);
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(bodyW + 0.06, 0.08, bodyD + 0.06), lockerTopMat);
         cap.position.y = 1.79;
         island.add(cap);
 
-        const plinth = new THREE.Mesh(new THREE.BoxGeometry(1.06, 0.1, 3.74), mats.cedarTimberMat);
+        const plinth = new THREE.Mesh(new THREE.BoxGeometry(bodyW - 0.04, 0.1, bodyD - 0.06), mats.cedarTimberMat);
         plinth.position.y = 0.05;
         island.add(plinth);
         group.add(island);
+
+        // Tight THREE.Box3 adjusted strictly to real visual bounds (no Z/X phantom expansion)
+        this.shoeLockerColliders.push(
+          new THREE.Box3(
+            new THREE.Vector3(lx - bodyW * 0.5, 0, 5.0 - bodyD * 0.5),
+            new THREE.Vector3(lx + bodyW * 0.5, bodyH, 5.0 + bodyD * 0.5)
+          )
+        );
       });
     } else {
       // 2F Continuous North & Center-South Corridor Walls
@@ -1389,16 +1402,8 @@ export class SchoolEngine {
     this.moveInput.y = THREE.MathUtils.clamp(y, -1, 1);
   }
 
-  public setGyroLookEnabled(enabled: boolean) {
-    this.gyroLookEnabled = enabled;
-    if (enabled) {
-      sensorService.recalibrateGyro();
-    }
-  }
-
   public resetCameraView() {
     this.playerPitch = 0;
-    sensorService.recalibrateGyro();
   }
 
   public captureScreenshot(): string {
@@ -1407,15 +1412,31 @@ export class SchoolEngine {
   }
 
   private isWalkable(x: number, z: number, floor: FloorNumber): WalkableRect | null {
-    const pad = 0.22;
+    const playerRadius = 0.18;
+
+    // 1. Physical Circle-vs-Box3 collision strictly against the 3 shoe-locker islands on 1F
+    if (floor === 1) {
+      for (let i = 0; i < this.shoeLockerColliders.length; i++) {
+        const box = this.shoeLockerColliders[i];
+        const closestX = THREE.MathUtils.clamp(x, box.min.x, box.max.x);
+        const closestZ = THREE.MathUtils.clamp(z, box.min.z, box.max.z);
+        const dx = x - closestX;
+        const dz = z - closestZ;
+        if (dx * dx + dz * dz < playerRadius * playerRadius) {
+          return null;
+        }
+      }
+    }
+
+    // 2. Room & corridor walkable bounds check
     for (let i = 0; i < WALKABLE_ZONES.length; i++) {
       const r = WALKABLE_ZONES[i];
       if (r.floor !== floor) continue;
       if (
-        x >= r.minX + pad &&
-        x <= r.maxX - pad &&
-        z >= r.minZ + pad &&
-        z <= r.maxZ - pad
+        x >= r.minX + playerRadius &&
+        x <= r.maxX - playerRadius &&
+        z >= r.minZ + playerRadius &&
+        z <= r.maxZ - playerRadius
       ) {
         return r;
       }
@@ -1470,26 +1491,12 @@ export class SchoolEngine {
       this.playerPos.y = THREE.MathUtils.damp(this.playerPos.y, 1.65, 8, delta);
     }
 
-    // Apply smoothed camera transform + optional Gyroscope parallax/orientation
-    let yawOffset = 0;
-    let pitchOffset = 0;
-    let rollOffset = 0;
-
-    if (this.gyroLookEnabled && sensorService.permissions.gyroscopeAllowed) {
-      yawOffset = THREE.MathUtils.degToRad(sensorService.orientation.alpha * 0.65);
-      pitchOffset = THREE.MathUtils.degToRad(
-        THREE.MathUtils.clamp(sensorService.orientation.beta * 0.45, -28, 28)
-      );
-      rollOffset = THREE.MathUtils.degToRad(
-        THREE.MathUtils.clamp(-sensorService.orientation.gamma * 0.15, -8, 8)
-      );
-    }
-
+    // Control de vista exclusivamente táctil (Touch Drag), sin orientación por giroscopio
     this.camera.position.copy(this.playerPos);
     _camEuler.set(
-      THREE.MathUtils.clamp(this.playerPitch + pitchOffset, -0.85, 0.85),
-      this.playerYaw + yawOffset,
-      rollOffset,
+      THREE.MathUtils.clamp(this.playerPitch, -0.85, 0.85),
+      this.playerYaw,
+      0,
       'YXZ'
     );
     this.camera.quaternion.setFromEuler(_camEuler);

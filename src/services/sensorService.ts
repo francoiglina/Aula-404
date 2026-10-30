@@ -10,7 +10,8 @@ export class SensorService {
     facingMode: 'environment' as 'environment' | 'user',
   };
 
-  // 1. Gyroscope / Orientation (Raw + Lerped)
+  // 1. Gyroscope / Orientation (Isolated: disabled by default, enabled only on-demand in PASO 6)
+  public isGyroActive = false;
   private rawOrientation = { alpha: 0, beta: 65, gamma: 0 };
   private calibrationOffset = { alpha: 0, beta: 65, gamma: 0 };
   private hasInitialCalibration = false;
@@ -69,33 +70,17 @@ export class SensorService {
     this.luminanceCtx = this.luminanceCanvas.getContext('2d', { willReadFrequently: true });
   }
 
-  // Must be triggered from a direct user click/tap gesture ("INICIAR EXPERIENCIA")
+  // Startup permissions: intentionally excludes DeviceOrientationEvent.requestPermission()
   async requestAllPermissions() {
-    await this.requestMotionAndOrientation();
+    await this.requestMotionOnly();
     await this.requestMicrophone();
     await this.requestCamera('environment');
     this.initAmbientLightSensor();
     return { ...this.permissions };
   }
 
-  async requestMotionAndOrientation(): Promise<boolean> {
-    let orientationGranted = false;
+  async requestMotionOnly(): Promise<boolean> {
     let motionGranted = false;
-
-    try {
-      const DOE = DeviceOrientationEvent as unknown as {
-        requestPermission?: () => Promise<'granted' | 'denied'>;
-      };
-      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DOE.requestPermission === 'function') {
-        const res = await DOE.requestPermission();
-        orientationGranted = res === 'granted';
-      } else if (typeof window !== 'undefined' && 'ondeviceorientation' in window) {
-        orientationGranted = true;
-      }
-    } catch {
-      orientationGranted = false;
-    }
-
     try {
       const DME = DeviceMotionEvent as unknown as {
         requestPermission?: () => Promise<'granted' | 'denied'>;
@@ -110,16 +95,54 @@ export class SensorService {
       motionGranted = false;
     }
 
-    if (orientationGranted) {
-      window.addEventListener('deviceorientation', this.handleOrientation, { passive: true });
-    }
     if (motionGranted) {
+      window.removeEventListener('devicemotion', this.handleMotion);
       window.addEventListener('devicemotion', this.handleMotion, { passive: true });
+    }
+    this.permissions.motionAllowed = motionGranted;
+    return motionGranted;
+  }
+
+  // On-demand gyroscope activation exclusively for minigames that require it (e.g. PASO 6 / ESTADO_5)
+  async enableGyroscope(): Promise<boolean> {
+    let orientationGranted = this.permissions.gyroscopeAllowed;
+
+    if (!orientationGranted) {
+      try {
+        const DOE = DeviceOrientationEvent as unknown as {
+          requestPermission?: () => Promise<'granted' | 'denied'>;
+        };
+        if (
+          typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DOE.requestPermission === 'function'
+        ) {
+          const res = await DOE.requestPermission();
+          orientationGranted = res === 'granted';
+        } else if (typeof window !== 'undefined' && 'ondeviceorientation' in window) {
+          orientationGranted = true;
+        }
+      } catch {
+        orientationGranted = false;
+      }
     }
 
     this.permissions.gyroscopeAllowed = orientationGranted;
-    this.permissions.motionAllowed = motionGranted;
-    return orientationGranted || motionGranted;
+
+    if (orientationGranted && !this.isGyroActive) {
+      this.hasInitialCalibration = false;
+      window.addEventListener('deviceorientation', this.handleOrientation, { passive: true });
+      this.isGyroActive = true;
+    }
+
+    return orientationGranted;
+  }
+
+  disableGyroscope() {
+    if (this.isGyroActive) {
+      window.removeEventListener('deviceorientation', this.handleOrientation);
+      this.isGyroActive = false;
+    }
+    this.simulatedTilt = null;
   }
 
   private handleOrientation = (e: DeviceOrientationEvent) => {
@@ -366,7 +389,7 @@ export class SensorService {
     return this.fallbackMirrorTexture;
   }
 
-  // Per-frame sensor smoothing (SDD Section 3.1 Lerp)
+  // Per-frame sensor smoothing (gyroscope Lerp runs ONLY when isolated gyro capture is active)
   update(delta: number, elapsed: number) {
     const smooth = Math.min(1, delta * 8.0);
 
@@ -383,7 +406,7 @@ export class SensorService {
       );
       this.orientation.beta = this.absoluteOrientation.beta;
       this.orientation.gamma = this.absoluteOrientation.gamma;
-    } else {
+    } else if (this.isGyroActive) {
       this.absoluteOrientation.alpha = THREE.MathUtils.lerp(
         this.absoluteOrientation.alpha,
         this.rawOrientation.alpha,

@@ -49,7 +49,6 @@ export default function App() {
 
   // Controls & Sensors UI state
   const [isMuted, setIsMuted] = useState(false);
-  const [gyroLookEnabled, setGyroLookEnabled] = useState(false);
   const [cameraAllowed, setCameraAllowed] = useState(false);
   const [playerCoords, setPlayerCoords] = useState<{
     x: number;
@@ -165,6 +164,9 @@ export default function App() {
 
       // If resolveMarkerDialogue returned null, this object marker opens its sensor challenge directly
       if (marker.challengeType) {
+        if (marker.challengeType === 'gyro_profesor') {
+          void sensorService.enableGyroscope();
+        }
         setActiveChallenge(marker.challengeType);
       }
     },
@@ -211,13 +213,9 @@ export default function App() {
     if (requestFullSensors) {
       const perms = await sensorService.requestAllPermissions();
       setCameraAllowed(perms.cameraAllowed);
-      if (perms.gyroscopeAllowed) {
-        setGyroLookEnabled(true);
-        engineRef.current?.setGyroLookEnabled(true);
-      }
     }
     setIsInitialized(true);
-    showToast('Explora la escuela · Habla con Tsuki o busca el Armario de Limpieza');
+    showToast('Explora la escuela · Arrastra la pantalla para mirar y usa el stick para caminar');
   };
 
   const handleFinishDialogue = (dialogue: DialoguePayload) => {
@@ -235,11 +233,17 @@ export default function App() {
     }
 
     if (dialogue.openChallenge) {
+      if (dialogue.openChallenge === 'gyro_profesor') {
+        void sensorService.enableGyroscope();
+      }
       setActiveChallenge(dialogue.openChallenge);
     }
   };
 
   const handleChallengeComplete = (completedType: SensorChallengeType) => {
+    if (completedType === 'gyro_profesor') {
+      sensorService.disableGyroscope();
+    }
     setActiveChallenge(null);
 
     if (completedType === 'touch_closet') {
@@ -318,21 +322,8 @@ export default function App() {
     }
   }, [currentFloor, showToast]);
 
-  const handleToggleGyroLook = async () => {
-    if (!gyroLookEnabled && !sensorService.permissions.gyroscopeAllowed) {
-      const granted = await sensorService.requestMotionAndOrientation();
-      if (!granted) {
-        showToast('Giroscopio no disponible en este dispositivo · Usa arrastre táctil');
-        return;
-      }
-    }
-    const next = !gyroLookEnabled;
-    setGyroLookEnabled(next);
-    engineRef.current?.setGyroLookEnabled(next);
-    showToast(next ? 'Cámara con giroscopio activada' : 'Cámara táctil manual activada');
-  };
-
   const handleRestartStory = () => {
+    sensorService.disableGyroscope();
     setShowEndingModal(false);
     setActiveDialogue(null);
     setActiveChallenge(null);
@@ -385,16 +376,14 @@ export default function App() {
         <MobileControlsOverlay
           nearbyMarker={nearbyMarker}
           objectiveText={PHASE_OBJECTIVES[phase]}
-          gyroLookEnabled={gyroLookEnabled}
           cameraAllowed={cameraAllowed}
           onMoveInput={(x, y) => engineRef.current?.setMoveInput(x, y)}
           onInteract={() => {
             if (nearbyMarker) interactWithMarker(nearbyMarker);
           }}
-          onToggleGyroLook={handleToggleGyroLook}
           onResetCamera={() => {
             engineRef.current?.resetCameraView();
-            showToast('Vista centrada y giroscopio recalibrado');
+            showToast('Vista táctil centrada horizontalmente');
           }}
           onCapturePhoto={handleCapturePhoto}
           onSwitchCamera={async () => {
@@ -418,7 +407,12 @@ export default function App() {
         <SensorChallengeModal
           challengeType={activeChallenge}
           onComplete={handleChallengeComplete}
-          onClose={() => setActiveChallenge(null)}
+          onClose={() => {
+            if (activeChallenge === 'gyro_profesor') {
+              sensorService.disableGyroscope();
+            }
+            setActiveChallenge(null);
+          }}
         />
       )}
 

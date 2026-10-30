@@ -39,6 +39,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
   const [liveTilt, setLiveTilt] = useState({ beta: 14, gamma: -12 });
   const [micGranted, setMicGranted] = useState(sensorService.permissions.micAllowed);
   const [camGranted, setCamGranted] = useState(sensorService.permissions.cameraAllowed);
+  const [gyroGranted, setGyroGranted] = useState(sensorService.permissions.gyroscopeAllowed);
 
   const mirrorPreviewRef = useRef<HTMLCanvasElement | null>(null);
   const gyroTargetOffset = useRef({ beta: 14, gamma: -11 });
@@ -59,7 +60,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
     }, 950);
   };
 
-  // Reset state when challenge opens
+  // Reset state when challenge opens & manage isolated gyroscope lifecycle for PASO 6
   useEffect(() => {
     completedRef.current = false;
     setCompleted(false);
@@ -67,10 +68,19 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
     setClosetStage(0);
     hasInitializedGyroOffset.current = false;
 
+    if (challengeType === 'gyro_profesor') {
+      void sensorService.enableGyroscope().then((ok) => {
+        setGyroGranted(ok);
+      });
+    }
+
     return () => {
       sensorService.simulatedLuminance = null;
       sensorService.simulatedTilt = null;
       sensorService.onShakeSpike = undefined;
+      if (challengeType === 'gyro_profesor') {
+        sensorService.disableGyroscope();
+      }
     };
   }, [challengeType]);
 
@@ -486,22 +496,43 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                   />
                 </div>
 
-                <div className="flex items-center justify-between w-full text-xs text-stone-400">
+                <div className="flex flex-wrap items-center justify-between gap-2 w-full text-xs text-stone-400">
                   <span className="font-mono-tech">
                     Inclinación X: {liveTilt.gamma.toFixed(1)}° · Y: {liveTilt.beta.toFixed(1)}°
                   </span>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sensorService.recalibrateGyro();
-                      sensorService.simulatedTilt = { beta: 0, gamma: 0 };
-                    }}
-                    className="min-h-[36px] px-3 rounded-lg border border-stone-700 bg-stone-800 text-xs font-semibold text-stone-200 hover:bg-stone-700 flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <RefreshCw className="h-3.5 w-3.5 text-amber-400" />
-                    <span>Nivelar / Calibrar</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {!gyroGranted && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ok = await sensorService.enableGyroscope();
+                          setGyroGranted(ok);
+                          if (ok) {
+                            sensorService.simulatedTilt = null;
+                          }
+                        }}
+                        className="min-h-[36px] px-3 rounded-lg bg-amber-500 text-xs font-bold text-stone-950 hover:bg-amber-400 flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Compass className="h-3.5 w-3.5" />
+                        <span>Activar Giroscopio</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sensorService.recalibrateGyro();
+                        if (!sensorService.isGyroActive) {
+                          sensorService.simulatedTilt = { beta: 0, gamma: 0 };
+                        }
+                      }}
+                      className="min-h-[36px] px-3 rounded-lg border border-stone-700 bg-stone-800 text-xs font-semibold text-stone-200 hover:bg-stone-700 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5 text-amber-400" />
+                      <span>Nivelar / Calibrar</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

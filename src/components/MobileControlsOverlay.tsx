@@ -3,7 +3,6 @@ import {
   Camera,
   ChevronDown,
   ChevronUp,
-  Compass,
   Hand,
   MessageCircle,
   RefreshCw,
@@ -15,11 +14,9 @@ import { WorldMarker } from '../types';
 interface MobileControlsOverlayProps {
   nearbyMarker: WorldMarker | null;
   objectiveText: string;
-  gyroLookEnabled: boolean;
   cameraAllowed: boolean;
   onMoveInput: (x: number, y: number) => void;
   onInteract: () => void;
-  onToggleGyroLook: () => void;
   onResetCamera: () => void;
   onCapturePhoto: () => void;
   onSwitchCamera: () => void;
@@ -28,11 +25,9 @@ interface MobileControlsOverlayProps {
 export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
   nearbyMarker,
   objectiveText,
-  gyroLookEnabled,
   cameraAllowed,
   onMoveInput,
   onInteract,
-  onToggleGyroLook,
   onResetCamera,
   onCapturePhoto,
   onSwitchCamera,
@@ -166,23 +161,10 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
           <div className="rounded-2xl border border-stone-800 bg-stone-950/94 p-2 flex items-center gap-2 shadow-2xl">
             <button
               type="button"
-              onClick={onToggleGyroLook}
-              className={`min-h-[40px] px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
-                gyroLookEnabled
-                  ? 'bg-amber-500 text-stone-950'
-                  : 'bg-stone-900 text-stone-200 hover:bg-stone-800 border border-stone-800'
-              }`}
-            >
-              <Compass className="h-3.5 w-3.5" />
-              <span>{gyroLookEnabled ? 'Giroscopio Activo' : 'Mirar con Giroscopio'}</span>
-            </button>
-
-            <button
-              type="button"
               onClick={onResetCamera}
               className="min-h-[40px] px-3 rounded-xl border border-stone-800 bg-stone-900 text-xs font-semibold text-stone-200 hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
             >
-              <RefreshCw className="h-3.5 w-3.5 text-stone-400" />
+              <RefreshCw className="h-3.5 w-3.5 text-amber-400" />
               <span>Centrar Vista</span>
             </button>
 
@@ -209,19 +191,15 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
         )}
       </div>
 
-      {/* Compact Mobile Gyro / Photo Pill above right button on phones */}
+      {/* Compact Mobile Camera Reset & Photo Buttons on phones */}
       <div className="pointer-events-auto fixed top-15 right-3 z-20 flex md:hidden flex-col gap-1.5">
         <button
           type="button"
-          onClick={onToggleGyroLook}
-          aria-label="Alternar vista con giroscopio"
-          className={`min-h-[44px] min-w-[44px] rounded-xl border flex items-center justify-center cursor-pointer ${
-            gyroLookEnabled
-              ? 'border-amber-400 bg-amber-500 text-stone-950'
-              : 'border-stone-800 bg-stone-950/90 text-stone-300'
-          }`}
+          onClick={onResetCamera}
+          aria-label="Centrar vista horizontal"
+          className="min-h-[44px] min-w-[44px] rounded-xl border border-stone-800 bg-stone-950/90 text-stone-300 flex items-center justify-center cursor-pointer"
         >
-          <Compass className="h-4 w-4" />
+          <RefreshCw className="h-4 w-4" />
         </button>
         <button
           type="button"
