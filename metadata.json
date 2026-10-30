@@ -1,0 +1,6 @@
+{
+  "name": "Aula 404 - Experiencia Inmersiva Móvil",
+  "description": "Aventura 3D surrealista en primera persona. Encuentra el Aula 404 usando giroscopio, micrófono, cámara y gestos táctiles.",
+  "requestFramePermissions": ["camera", "microphone", "accelerometer", "gyroscope"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
