@@ -1482,6 +1482,10 @@ export class SchoolEngine {
     }
   }
 
+  public getCurrentFloor(): FloorNumber {
+    return this.currentFloor;
+  }
+
   public setFloor(floor: FloorNumber, spawnPos?: [number, number, number], yaw?: number) {
     this.currentFloor = floor;
     this.floor1Group.visible = floor === 1;

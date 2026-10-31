@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { DialogueOverlay } from './components/DialogueOverlay';
 import { EndingModal } from './components/EndingModal';
+import { MinimapHud } from './components/MinimapHud';
 import { MobileControlsOverlay } from './components/MobileControlsOverlay';
 import { SchoolMapModal } from './components/SchoolMapModal';
 import { SensorChallengeModal } from './components/SensorChallengeModal';
@@ -396,6 +397,22 @@ export default function App() {
           }}
         />
       )}
+
+      {/* Dynamic Real-Time 2D Minimap (Top-Right Non-Obstructive Overlay) */}
+      {isInitialized &&
+        !activeDialogue &&
+        !activeChallenge &&
+        !mapModalTab &&
+        !showEndingModal && (
+          <MinimapHud
+            engineRef={engineRef}
+            floor={currentFloor}
+            phase={phase}
+            unlockedObjects={unlockedObjects}
+            finalSubstate={finalSubstate}
+            onOpenFullMap={() => setMapModalTab('map')}
+          />
+        )}
 
       {/* Subtle Toast Notification */}
       {toastMessage && isInitialized && (

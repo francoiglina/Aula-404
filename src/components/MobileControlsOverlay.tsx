@@ -94,13 +94,13 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
 
   return (
     <>
-      {/* Mobile Compact Enigmatic Phase Strip (visible on small mobile screens) */}
-      <div className="font-sans pointer-events-none fixed top-15 left-3 right-3 z-10 flex justify-center sm:hidden">
-        <div className="rounded-xl border border-stone-800/90 bg-stone-950/90 px-3.5 py-1.5 text-center max-w-md flex items-center gap-2">
+      {/* Mobile Compact Enigmatic Phase Strip (aligned top-left on small screens so top-right minimap stays clear) */}
+      <div className="font-sans pointer-events-none fixed top-15 left-3 right-[200px] z-10 flex justify-start sm:hidden">
+        <div className="rounded-xl border border-stone-800/90 bg-stone-950/90 px-3 py-1.5 text-left max-w-full flex items-center gap-1.5 overflow-hidden">
           <span className="font-mono-tech text-[10px] font-semibold uppercase tracking-wider text-amber-400 shrink-0">
             {phaseIndicator.stageTag}
           </span>
-          <span aria-hidden="true" className="text-stone-600">
+          <span aria-hidden="true" className="text-stone-600 shrink-0">
             ·
           </span>
           <span className="font-display text-xs font-medium text-stone-100 truncate">
@@ -200,13 +200,13 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
         )}
       </div>
 
-      {/* Compact Mobile Camera Reset & Photo Buttons on phones */}
-      <div className="pointer-events-auto fixed top-15 right-3 z-20 flex md:hidden flex-col gap-1.5">
+      {/* Compact Mobile Camera Reset & Photo Buttons positioned top-left below mobile rumor badge */}
+      <div className="pointer-events-auto fixed top-26 sm:top-15 left-3 z-20 flex md:hidden flex-row gap-1.5">
         <button
           type="button"
           onClick={onResetCamera}
           aria-label="Centrar vista horizontal"
-          className="min-h-[44px] min-w-[44px] rounded-xl border border-stone-800 bg-stone-950/90 text-stone-300 flex items-center justify-center cursor-pointer"
+          className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-800 bg-stone-950/90 text-stone-300 flex items-center justify-center cursor-pointer"
         >
           <RefreshCw className="h-4 w-4" />
         </button>
@@ -214,7 +214,7 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
           type="button"
           onClick={onCapturePhoto}
           aria-label="Capturar foto de la escena"
-          className="min-h-[44px] min-w-[44px] rounded-xl border border-stone-800 bg-stone-950/90 text-stone-300 flex items-center justify-center cursor-pointer"
+          className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-800 bg-stone-950/90 text-stone-300 flex items-center justify-center cursor-pointer"
         >
           <Camera className="h-4 w-4" />
         </button>
