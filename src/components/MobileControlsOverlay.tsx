@@ -224,6 +224,7 @@ export const MobileControlsOverlay: React.FC<MobileControlsOverlayProps> = ({
       <div className="font-sans pointer-events-auto fixed bottom-5 right-5 z-20 flex flex-col items-center gap-1.5">
         <button
           type="button"
+          data-no-confirm-sfx="true"
           onClick={onInteract}
           disabled={!nearbyMarker}
           aria-label="Interactuar con marcador cercano"

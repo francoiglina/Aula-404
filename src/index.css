@@ -103,3 +103,64 @@
   border: 1px solid rgba(68, 64, 60, 0.85);
 }
 
+/* Minimalist J-Horror Black & White "NUEVA PISTA" Center Overlay Animation */
+@keyframes jhorrorClueReveal {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(0.94);
+  }
+  10% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  76% {
+    opacity: 1;
+    transform: translate3d(0, -1px, 0) scale(1.024);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -5px, 0) scale(1.045);
+  }
+}
+
+@keyframes jhorrorRuleExpand {
+  0% {
+    opacity: 0;
+    transform: scaleX(0.18);
+  }
+  16% {
+    opacity: 0.85;
+    transform: scaleX(1);
+  }
+  76% {
+    opacity: 0.85;
+    transform: scaleX(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scaleX(1.04);
+  }
+}
+
+.jhorror-clue-card {
+  background-color: rgba(6, 6, 8, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.88),
+    inset 0 0 0 3px rgba(6, 6, 8, 1),
+    inset 0 0 0 4px rgba(255, 255, 255, 0.22);
+  animation: jhorrorClueReveal 3600ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.jhorror-clue-rule {
+  animation: jhorrorRuleExpand 3600ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jhorror-clue-card,
+  .jhorror-clue-rule {
+    animation-duration: 10ms;
+  }
+}
+
+

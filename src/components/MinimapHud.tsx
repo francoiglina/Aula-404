@@ -758,6 +758,7 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
           <div className="minimap-canvas-frame overflow-hidden rounded-lg">
             <canvas
               ref={canvasRef}
+              data-ui-confirm="true"
               onClick={onOpenFullMap}
               className="block w-full h-auto aspect-[224/132] cursor-pointer"
             />

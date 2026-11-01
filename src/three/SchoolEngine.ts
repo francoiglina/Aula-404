@@ -75,6 +75,7 @@ export class SchoolEngine {
   private finalSubstate: FinalSubstate = 'pendiente';
   private unlockedObjects = new Set<string>();
   private isPaused = false;
+  private movementLocked = true;
   private disposed = false;
 
   // Player state (spawn in 1F Genkan aisle 2 facing north toward school interior)
@@ -150,6 +151,7 @@ export class SchoolEngine {
 
     this.camera = new THREE.PerspectiveCamera(68, width / height, 0.1, 85);
     this.camera.position.copy(this.playerPos);
+    soundEngine.attachCamera(this.camera);
 
     this.renderer = new THREE.WebGLRenderer({
       antialias: !this.isSoftwareGl,
@@ -1574,6 +1576,16 @@ export class SchoolEngine {
     this.moveInput.y = THREE.MathUtils.clamp(y, -1, 1);
   }
 
+  public setMovementLocked(locked: boolean) {
+    this.movementLocked = locked;
+    if (locked) {
+      this.moveInput.x = 0;
+      this.moveInput.y = 0;
+      this.keyState = {};
+      soundEngine.footsteps.reset(false);
+    }
+  }
+
   public resetCameraView() {
     this.playerPitch = 0;
   }
@@ -1617,6 +1629,20 @@ export class SchoolEngine {
   }
 
   private updateMovement(delta: number) {
+    if (this.movementLocked) {
+      this.playerPos.y = THREE.MathUtils.damp(this.playerPos.y, 1.65, 8, delta);
+      soundEngine.updateFootsteps(delta, false, 0);
+      this.camera.position.copy(this.playerPos);
+      _camEuler.set(
+        THREE.MathUtils.clamp(this.playerPitch, -0.85, 0.85),
+        this.playerYaw,
+        0,
+        'YXZ'
+      );
+      this.camera.quaternion.setFromEuler(_camEuler);
+      return;
+    }
+
     let inputX = this.moveInput.x;
     let inputY = this.moveInput.y;
 
@@ -1640,8 +1666,10 @@ export class SchoolEngine {
         .addScaledVector(_forward, normY * moveSpeed * delta)
         .addScaledVector(_right, normX * moveSpeed * delta);
 
-      const nextX = this.playerPos.x + _moveVec.x;
-      const nextZ = this.playerPos.z + _moveVec.z;
+      const prevX = this.playerPos.x;
+      const prevZ = this.playerPos.z;
+      const nextX = prevX + _moveVec.x;
+      const nextZ = prevZ + _moveVec.z;
 
       // Axis-separated sliding collision against school walls
       if (this.isWalkable(nextX, nextZ, this.currentFloor)) {
@@ -1656,11 +1684,22 @@ export class SchoolEngine {
         }
       }
 
-      this.bobTimer += delta * 9.5 * Math.min(1, mag);
-      this.playerPos.y = 1.65 + Math.sin(this.bobTimer) * 0.032;
-      soundEngine.playFootstep();
+      const dxMoved = this.playerPos.x - prevX;
+      const dzMoved = this.playerPos.z - prevZ;
+      const didDisplace = dxMoved * dxMoved + dzMoved * dzMoved > 1e-6;
+      const speedRatio = Math.min(1, mag);
+
+      if (didDisplace) {
+        this.bobTimer += delta * 9.5 * speedRatio;
+        this.playerPos.y = 1.65 + Math.sin(this.bobTimer) * 0.032;
+        soundEngine.updateFootsteps(delta, true, speedRatio);
+      } else {
+        this.playerPos.y = THREE.MathUtils.damp(this.playerPos.y, 1.65, 8, delta);
+        soundEngine.updateFootsteps(delta, false, 0);
+      }
     } else {
       this.playerPos.y = THREE.MathUtils.damp(this.playerPos.y, 1.65, 8, delta);
+      soundEngine.updateFootsteps(delta, false, 0);
     }
 
     // Control de vista exclusivamente táctil (Touch Drag), sin orientación por giroscopio
@@ -2093,6 +2132,7 @@ export class SchoolEngine {
     this.destPlaqueLockedTex?.dispose();
     this.destPlaqueUnlockedTex?.dispose();
 
+    soundEngine.detachCamera(this.camera);
     this.renderer.dispose();
   }
 }

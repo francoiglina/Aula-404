@@ -92,6 +92,13 @@ export interface ClueRecord {
   unlocked: boolean;
 }
 
+export interface SensorInteractionData {
+  sensorType: SensorChallengeType;
+  clueStep: number;
+  nextPhase: GamePhase;
+  nextZoneHint: string;
+}
+
 export interface DialoguePayload {
   markerId: string;
   speakerName: string;
@@ -101,6 +108,7 @@ export interface DialoguePayload {
   advanceToPhase?: GamePhase;
   unlocksObjectId?: string;
   unlocksNpcTalkFlag?: string;
+  sensorCompletion?: SensorInteractionData;
 }
 
 export interface PhaseIndicator {

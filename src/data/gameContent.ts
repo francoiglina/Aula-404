@@ -5,6 +5,7 @@ import {
   GamePhase,
   PhaseIndicator,
   SensorChallengeType,
+  SensorInteractionData,
   WalkableRect,
   WorldMarker,
 } from '../types';
@@ -522,6 +523,39 @@ export function getPhaseIndicator(
   return PHASE_INDICATORS[phase];
 }
 
+export const SENSOR_COMPLETION_DATA: Record<SensorChallengeType, SensorInteractionData> = {
+  touch_closet: {
+    sensorType: 'touch_closet',
+    clueStep: 2,
+    nextPhase: 'ESTADO_2',
+    nextZoneHint: 'Alguien vio quién se llevó la lista cerca de las bicicletas del patio derecho...',
+  },
+  shake_bikes: {
+    sensorType: 'shake_bikes',
+    clueStep: 3,
+    nextPhase: 'ESTADO_3',
+    nextZoneHint: 'Las huellas bajo las hojas regresan hacia el salón 1B, donde cuelga la campanita...',
+  },
+  mic_whisper: {
+    sensorType: 'mic_whisper',
+    clueStep: 4,
+    nextPhase: 'ESTADO_4',
+    nextZoneHint: 'El susurro proviene del segundo piso, rumbo a los baños del fondo...',
+  },
+  light_hanako: {
+    sensorType: 'light_hanako',
+    clueStep: 5,
+    nextPhase: 'ESTADO_5',
+    nextZoneHint: 'El mensaje en el espejo empañado apunta hacia la sala de profesores...',
+  },
+  gyro_profesor: {
+    sensorType: 'gyro_profesor',
+    clueStep: 6,
+    nextPhase: 'ESTADO_FINAL',
+    nextZoneHint: 'Tu registro indica el salón 2C; dejaron una pieza frente a su puerta para abrirla...',
+  },
+};
+
 export const POST_CHALLENGE_DIALOGUES: Record<SensorChallengeType, DialoguePayload> = {
   touch_closet: {
     markerId: 'objeto_armario',
@@ -531,6 +565,7 @@ export const POST_CHALLENGE_DIALOGUES: Record<SensorChallengeType, DialoguePaylo
       'Es una hoja cuadriculada escrita con prisa, como si dos compañeros se la hubieran pasado durante la clase:',
       '"Oye, me acaban de contar unos chicos de la 1A que hoy temprano Hotaru vio quién se llevó la lista que falta mientras dejaba su bicicleta afuera, en el patio del fondo a la derecha."',
     ],
+    sensorCompletion: SENSOR_COMPLETION_DATA.touch_closet,
   },
   shake_bikes: {
     markerId: 'personaje_hotaru',
@@ -541,6 +576,7 @@ export const POST_CHALLENGE_DIALOGUES: Record<SensorChallengeType, DialoguePaylo
       '¡Mira eso, de verdad habían quedado las huellas de lodo debajo de las hojas! Regresaron directo hacia el pasillo principal.',
       '¿Escuchaste lo que cuentan sobre Kaeru? Unos compañeros de la 1B me dijeron que casi siempre se queda ahí afuera de su salón, justo donde colgaron esa campanita de vidrio.',
     ],
+    sensorCompletion: SENSOR_COMPLETION_DATA.shake_bikes,
   },
   mic_whisper: {
     markerId: 'personaje_kaeru',
@@ -551,6 +587,7 @@ export const POST_CHALLENGE_DIALOGUES: Record<SensorChallengeType, DialoguePaylo
       'No lo puedo creer, ¡en serio se escuchó como si alguien subiera con prisa por las escaleras!',
       'Ahora que lo pienso, los chicos de la 2D siempre dicen que cuando se pierde algo extraño en la escuela, termina enterándose Hanako allá arriba, en los baños que están pasando la 2C y la 2D.',
     ],
+    sensorCompletion: SENSOR_COMPLETION_DATA.mic_whisper,
   },
   light_hanako: {
     markerId: 'personaje_hanako',
@@ -561,6 +598,7 @@ export const POST_CHALLENGE_DIALOGUES: Record<SensorChallengeType, DialoguePaylo
       '¡Ya ves que tenían razón los de la 2C! En cuanto quedó todo oscuro se distinguió claramente lo que escribieron en el vidrio, y mira, hasta habían dejado esta llave pequeña en el borde.',
       'Hace un momento escuché a unas chicas de la 2A comentar que al otro extremo de este piso, en la sala de profesores, hay un docente que guarda bajo llave los registros que no aparecieron en la entrada.',
     ],
+    sensorCompletion: SENSOR_COMPLETION_DATA.light_hanako,
   },
   gyro_profesor: {
     markerId: 'personaje_profesor',
@@ -571,6 +609,7 @@ export const POST_CHALLENGE_DIALOGUES: Record<SensorChallengeType, DialoguePaylo
       '¡Vaya, la abriste al primer intento! Mira aquí dentro: este es tu registro de inscripción, con razón no aparecías abajo; te asignaron al salón 2C, en este mismo piso.',
       'Por cierto, hace un rato escuché a unos chicos comentar que la puerta de la 2C tenía trabado el seguro por fuera, pero decían que alguien dejó una pieza justo frente a la entrada para poder destrabarla.',
     ],
+    sensorCompletion: SENSOR_COMPLETION_DATA.gyro_profesor,
   },
 };
 

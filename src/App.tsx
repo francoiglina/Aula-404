@@ -4,6 +4,7 @@ import { DialogueOverlay } from './components/DialogueOverlay';
 import { EndingModal } from './components/EndingModal';
 import { MinimapHud } from './components/MinimapHud';
 import { MobileControlsOverlay } from './components/MobileControlsOverlay';
+import { NewClueBanner } from './components/NewClueBanner';
 import { SchoolMapModal } from './components/SchoolMapModal';
 import { SensorChallengeModal } from './components/SensorChallengeModal';
 import { TopSensorHud } from './components/TopSensorHud';
@@ -24,6 +25,7 @@ import {
   FloorNumber,
   GamePhase,
   SensorChallengeType,
+  SensorInteractionData,
   WorldMarker,
 } from './types';
 
@@ -61,6 +63,7 @@ export default function App() {
     floor: FloorNumber;
   }>({ x: -1.5, z: 6.0, yaw: 0, floor: 1 });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [clueBanner, setClueBanner] = useState<{ id: number; text: string } | null>(null);
 
   // Mutable refs so Three.js callbacks never read stale React state
   const phaseRef = useRef<GamePhase>(phase);
@@ -98,9 +101,7 @@ export default function App() {
         showEndingModal ||
         stairTransitionText
     );
-    if (isBusyOverlayRef.current) {
-      engineRef.current?.setMoveInput(0, 0);
-    }
+    engineRef.current?.setMovementLocked(isBusyOverlayRef.current);
   }, [
     isInitialized,
     activeDialogue,
@@ -120,6 +121,12 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toastMessage]);
 
+  useEffect(() => {
+    if (!clueBanner) return;
+    const t = window.setTimeout(() => setClueBanner(null), 3650);
+    return () => clearTimeout(t);
+  }, [clueBanner]);
+
   const unlockClueByStep = useCallback((stepNumber: number) => {
     setClues((prev) =>
       prev.map((c) => (c.stepNumber === stepNumber ? { ...c, unlocked: true } : c))
@@ -133,6 +140,7 @@ export default function App() {
     const yaw = marker.spawnYaw ?? 0;
 
     soundEngine.playStairsTransition();
+    soundEngine.fadeOutBgm(0.35, { targetVolume: 0.14 });
     setStairTransitionText(
       nextFloor === 2 ? 'Subiendo al segundo piso...' : 'Bajando al primer piso...'
     );
@@ -146,6 +154,7 @@ export default function App() {
 
     window.setTimeout(() => {
       setStairFadeOpaque(false);
+      soundEngine.fadeInBgm(0.7, 0.32);
     }, 780);
 
     window.setTimeout(() => {
@@ -163,7 +172,6 @@ export default function App() {
         return;
       }
 
-      soundEngine.playInteractTap();
       const curPhase = phaseRef.current;
       const curFinalSub = finalSubstateRef.current;
       const curFlags = spokenFlagsRef.current;
@@ -178,9 +186,11 @@ export default function App() {
         finalSubstateRef.current = 'puerta_desbloqueada';
         setFinalSubstate('puerta_desbloqueada');
         engineRef.current?.setFinalSubstate('puerta_desbloqueada');
-        soundEngine.playClueUnlocked();
-        soundEngine.vibrate(45);
-        showToast('Seguro destrabado · La puerta del salón 2C está desbloqueada');
+        soundEngine.playSensorSuccess();
+        setClueBanner({
+          id: Date.now(),
+          text: 'Quitaste el seguro exterior; la puerta del salón 2C ya puede abrirse...',
+        });
         return;
       }
 
@@ -194,11 +204,13 @@ export default function App() {
         finalSubstateRef.current = 'completada';
         setFinalSubstate('completada');
         engineRef.current?.setFinalSubstate('completada');
-        soundEngine.playClueUnlocked();
-        soundEngine.vibrate(60);
+        soundEngine.playSensorSuccess();
+        soundEngine.fadeOutBgm(2.2, { pauseAfterFade: true });
         setShowEndingModal(true);
         return;
       }
+
+      soundEngine.playInteractTap();
 
       // 3. Resolve character/object dialogue
       const dialogue = resolveMarkerDialogue(marker.id, curPhase, curFlags);
@@ -217,6 +229,7 @@ export default function App() {
         if (marker.challengeType === 'gyro_profesor') {
           void sensorService.enableGyroscope();
         }
+        soundEngine.fadeOutBgm(0.5, { targetVolume: 0.14 });
         setActiveChallenge(marker.challengeType);
       }
     },
@@ -246,12 +259,29 @@ export default function App() {
       onZoneNameChange: (name) => setZoneName(name),
       onPlayerMove: (coords) => setPlayerCoords(coords),
     });
+    engine.setMovementLocked(isBusyOverlayRef.current);
     engineRef.current = engine;
 
     return () => {
       engine.dispose();
       engineRef.current = null;
     };
+  }, []);
+
+  // Global delegated UI confirmation SFX (menu_confirm.mp3) for all interactive buttons & modal options
+  useEffect(() => {
+    const onDocumentClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const interactiveEl = target.closest(
+        'button:not(:disabled):not([data-no-confirm-sfx]), [data-ui-confirm="true"]'
+      );
+      if (interactiveEl) {
+        soundEngine.playConfirm();
+      }
+    };
+    document.addEventListener('click', onDocumentClick);
+    return () => document.removeEventListener('click', onDocumentClick);
   }, []);
 
   // Keyboard shortcuts for desktop testing (E triggers the same validated overlay action, M toggles map)
@@ -263,6 +293,7 @@ export default function App() {
         handleOverlayInteract();
       } else if (e.code === 'KeyM' && !activeDialogue && !activeChallenge) {
         e.preventDefault();
+        soundEngine.playConfirm();
         setMapModalTab((prev) => (prev ? null : 'map'));
       }
     };
@@ -272,6 +303,8 @@ export default function App() {
 
   const handleStartExperience = async (requestFullSensors: boolean) => {
     soundEngine.init();
+    soundEngine.startBgm(1.3);
+    soundEngine.playConfirm();
     if (requestFullSensors) {
       const perms = await sensorService.requestAllPermissions();
       setCameraAllowed(perms.cameraAllowed);
@@ -280,9 +313,43 @@ export default function App() {
     showToast('Ya sonó el timbre y en los pasillos quedaron solo murmullos...');
   };
 
-  // Gestor de fin de diálogo: cierra la conversación, devuelve el control 3D y habilita el marcador del objeto
+  /**
+   * Se ejecuta en el instante exacto en que el usuario cierra el texto final del modal de diálogo/sensor:
+   * 1. Reproduce el audio de éxito reseteando currentTime = 0.
+   * 2. Despliega la notificación central "NUEVA PISTA: ..." con animación minimalista J-Horror.
+   * 3. Avanza dinámicamente la etapa y la indicación hacia la siguiente zona.
+   */
+  const onFinishSensorInteraction = useCallback(
+    (sensorData: SensorInteractionData) => {
+      // 1. Reproducir audio de éxito desde currentTime = 0 con prioridad sobre pasos y UI secundaria
+      soundEngine.playSensorSuccess();
+
+      // 2. Mostrar animación central "NUEVA PISTA: [Texto dinámico]"
+      setClueBanner({
+        id: Date.now(),
+        text: sensorData.nextZoneHint,
+      });
+
+      // 3. Actualizar etapa e indicación hacia la siguiente zona del juego
+      if (sensorData.nextPhase === 'ESTADO_FINAL') {
+        finalSubstateRef.current = 'pendiente';
+        setFinalSubstate('pendiente');
+      }
+      phaseRef.current = sensorData.nextPhase;
+      setPhase(sensorData.nextPhase);
+      unlockClueByStep(sensorData.clueStep);
+    },
+    [unlockClueByStep]
+  );
+
+  // Gestor de fin de diálogo: cierra la conversación, devuelve el control 3D y procesa pistas/sensores
   const handleFinishDialogue = (dialogue: DialoguePayload) => {
     setActiveDialogue(null);
+
+    if (dialogue.sensorCompletion) {
+      onFinishSensorInteraction(dialogue.sensorCompletion);
+      return;
+    }
 
     if (dialogue.unlocksNpcTalkFlag) {
       setSpokenFlags((prev) => ({ ...prev, [dialogue.unlocksNpcTalkFlag!]: true }));
@@ -299,7 +366,6 @@ export default function App() {
       setUnlockedObjects((prev) => ({ ...prev, [objectId]: true }));
 
       if (!alreadyUnlocked) {
-        soundEngine.playClueUnlocked();
         showToast('Nuevo rumor anotado · Algo llamó tu atención aquí cerca');
       }
     }
@@ -310,31 +376,9 @@ export default function App() {
       sensorService.disableGyroscope();
     }
     setActiveChallenge(null);
-
-    if (completedType === 'touch_closet') {
-      setPhase('ESTADO_2');
-      unlockClueByStep(2);
-      setActiveDialogue(POST_CHALLENGE_DIALOGUES.touch_closet);
-    } else if (completedType === 'shake_bikes') {
-      setPhase('ESTADO_3');
-      unlockClueByStep(3);
-      setActiveDialogue(POST_CHALLENGE_DIALOGUES.shake_bikes);
-    } else if (completedType === 'mic_whisper') {
-      setPhase('ESTADO_4');
-      unlockClueByStep(4);
-      setActiveDialogue(POST_CHALLENGE_DIALOGUES.mic_whisper);
-    } else if (completedType === 'light_hanako') {
-      setPhase('ESTADO_5');
-      unlockClueByStep(5);
-      setActiveDialogue(POST_CHALLENGE_DIALOGUES.light_hanako);
-    } else if (completedType === 'gyro_profesor') {
-      // No dispara la pantalla final aún: habilita el marcador .glb frente al salón destino (2C)
-      finalSubstateRef.current = 'pendiente';
-      setFinalSubstate('pendiente');
-      setPhase('ESTADO_FINAL');
-      unlockClueByStep(6);
-      setActiveDialogue(POST_CHALLENGE_DIALOGUES.gyro_profesor);
-    }
+    soundEngine.fadeInBgm(0.75, 0.32);
+    // Abre la lectura final del hallazgo del sensor; al cerrarla se ejecutará onFinishSensorInteraction
+    setActiveDialogue(POST_CHALLENGE_DIALOGUES[completedType]);
   };
 
   const handleCapturePhoto = useCallback(() => {
@@ -360,6 +404,7 @@ export default function App() {
     setShowEndingModal(false);
     setActiveDialogue(null);
     setActiveChallenge(null);
+    setClueBanner(null);
     finalSubstateRef.current = 'pendiente';
     setFinalSubstate('pendiente');
     setPhase('ESTADO_0');
@@ -369,6 +414,7 @@ export default function App() {
     setCurrentFloor(1);
     engineRef.current?.setFinalSubstate('pendiente');
     engineRef.current?.setFloor(1, [-1.5, 0, 6.0], 0);
+    soundEngine.fadeInBgm(1.2, 0.32);
     showToast('Historia reiniciada · Primer día de clases');
   };
 
@@ -394,6 +440,9 @@ export default function App() {
             const next = !isMuted;
             setIsMuted(next);
             soundEngine.setMuted(next);
+            if (!next) {
+              soundEngine.playConfirm();
+            }
           }}
         />
       )}
@@ -413,6 +462,11 @@ export default function App() {
             onOpenFullMap={() => setMapModalTab('map')}
           />
         )}
+
+      {/* Minimalist J-Horror "NUEVA PISTA" Center Overlay */}
+      {clueBanner && isInitialized && (
+        <NewClueBanner key={clueBanner.id} clueText={clueBanner.text} />
+      )}
 
       {/* Subtle Toast Notification */}
       {toastMessage && isInitialized && (
@@ -463,6 +517,7 @@ export default function App() {
               sensorService.disableGyroscope();
             }
             setActiveChallenge(null);
+            soundEngine.fadeInBgm(0.65, 0.32);
           }}
         />
       )}
@@ -483,7 +538,10 @@ export default function App() {
       {showEndingModal && (
         <EndingModal
           clues={clues}
-          onKeepExploring={() => setShowEndingModal(false)}
+          onKeepExploring={() => {
+            setShowEndingModal(false);
+            soundEngine.fadeInBgm(1.0, 0.32);
+          }}
           onCaptureMemento={handleCapturePhoto}
           onRestart={handleRestartStory}
         />

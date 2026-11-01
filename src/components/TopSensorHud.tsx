@@ -92,6 +92,7 @@ export const TopSensorHud: React.FC<TopSensorHudProps> = ({
 
         <button
           type="button"
+          data-no-confirm-sfx="true"
           onClick={onToggleMute}
           aria-label={isMuted ? 'Activar sonido' : 'Silenciar sonido'}
           className="min-h-[40px] min-w-[40px] rounded-lg border border-stone-800 bg-stone-900 text-stone-200 hover:bg-stone-800 active:scale-[0.98] transition-all flex items-center justify-center cursor-pointer"

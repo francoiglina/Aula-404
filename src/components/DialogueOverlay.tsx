@@ -43,14 +43,18 @@ export const DialogueOverlay: React.FC<DialogueOverlayProps> = ({
 
   const handleAdvance = () => {
     if (isTyping) {
+      soundEngine.playConfirm();
       setCharCount(currentFullLine.length);
       return;
     }
-    soundEngine.playInteractTap();
     if (!isLastLine) {
+      soundEngine.playConfirm();
       setLineIndex((prev) => prev + 1);
       setCharCount(0);
     } else {
+      if (!dialogue.sensorCompletion) {
+        soundEngine.playConfirm();
+      }
       onFinishDialogue(dialogue);
     }
   };
@@ -135,6 +139,7 @@ export const DialogueOverlay: React.FC<DialogueOverlayProps> = ({
               <div className="mt-3 flex justify-end">
                 <button
                   type="button"
+                  data-no-confirm-sfx="true"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleAdvance();

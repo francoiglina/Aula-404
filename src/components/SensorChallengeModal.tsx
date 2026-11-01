@@ -53,11 +53,11 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
     setProgress(100);
     sensorService.simulatedLuminance = null;
     sensorService.simulatedTilt = null;
-    soundEngine.playClueUnlocked();
+    soundEngine.vibrate(35);
 
     window.setTimeout(() => {
       onComplete(challengeType);
-    }, 950);
+    }, 480);
   };
 
   // Reset state when challenge opens & manage isolated gyroscope lifecycle for PASO 6

@@ -128,6 +128,7 @@ export const WelcomePermissionsModal: React.FC<WelcomePermissionsModalProps> = (
         <div className="mt-6 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <button
             type="button"
+            data-no-confirm-sfx="true"
             disabled={isRequesting}
             onClick={() => handleStart(true)}
             className="flex-1 min-h-[48px] rounded-xl bg-amber-500 px-5 py-3 text-sm font-semibold text-stone-950 hover:bg-amber-400 active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap disabled:opacity-60"
@@ -141,6 +142,7 @@ export const WelcomePermissionsModal: React.FC<WelcomePermissionsModalProps> = (
 
           <button
             type="button"
+            data-no-confirm-sfx="true"
             disabled={isRequesting}
             onClick={() => handleStart(false)}
             className="min-h-[48px] rounded-xl border border-stone-700 bg-stone-800/90 px-4 py-3 text-xs font-medium text-stone-200 hover:bg-stone-800 active:scale-[0.99] transition-all cursor-pointer whitespace-nowrap disabled:opacity-60"
