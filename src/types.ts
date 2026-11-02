@@ -20,6 +20,14 @@ export type SensorChallengeType =
   | 'light_hanako'
   | 'gyro_profesor';
 
+export type CharacterPortraitId =
+  | 'tsuki'
+  | 'conserje'
+  | 'hanako'
+  | 'hotaru'
+  | 'kaoru'
+  | 'profe';
+
 // SDD Section 5.1 AppState Schema + Game State Machine extensions
 export interface AppState {
   isInitialized: boolean;
@@ -77,6 +85,7 @@ export interface WorldMarker {
   targetFloor?: FloorNumber;
   spawnAfterStairs?: [number, number, number];
   spawnYaw?: number;
+  characterId?: CharacterPortraitId;
   portraitUrl?: string;
   requiredPhase?: GamePhase;
   challengeType?: SensorChallengeType;
@@ -101,6 +110,7 @@ export interface SensorInteractionData {
 
 export interface DialoguePayload {
   markerId: string;
+  characterId?: CharacterPortraitId;
   speakerName: string;
   speakerRole: string;
   portraitUrl?: string;

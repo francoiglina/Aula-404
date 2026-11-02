@@ -332,14 +332,14 @@ export function createCharacterStandeeTexture(
     if (img && img.naturalWidth > 0) {
       ctx.save();
       ctx.beginPath();
-      ctx.roundRect(46, 38, 420, 620, [142, 142, 14, 14]);
+      ctx.roundRect(46, 38, 420, 628, [142, 142, 0, 0]);
       ctx.clip();
 
-      const scale = Math.min(420 / img.naturalWidth, 620 / img.naturalHeight) * 0.96;
+      const scale = Math.min(416 / img.naturalWidth, 616 / img.naturalHeight);
       const dw = img.naturalWidth * scale;
       const dh = img.naturalHeight * scale;
       const dx = 256 - dw / 2;
-      const dy = 355 - dh / 2;
+      const dy = 666 - dh;
       ctx.drawImage(img, dx, dy, dw, dh);
       ctx.restore();
     } else {

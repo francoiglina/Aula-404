@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
+import {
+  preloadCharacterPortraits,
+  resolveCharacterPortrait,
+} from '../data/characterPortraits';
 import { soundEngine } from '../services/soundEngine';
 import { DialoguePayload } from '../types';
 
@@ -17,9 +21,18 @@ export const DialogueOverlay: React.FC<DialogueOverlayProps> = ({
   const [charCount, setCharCount] = useState(0);
   const [imgFailed, setImgFailed] = useState(false);
 
+  const portraitSrc = resolveCharacterPortrait(
+    dialogue.characterId ?? dialogue.markerId,
+    dialogue.portraitUrl
+  );
+
   const currentFullLine = dialogue.lines[lineIndex] || '';
   const isTyping = charCount < currentFullLine.length;
   const isLastLine = lineIndex >= dialogue.lines.length - 1;
+
+  useEffect(() => {
+    preloadCharacterPortraits();
+  }, []);
 
   useEffect(() => {
     setLineIndex(0);
@@ -62,23 +75,24 @@ export const DialogueOverlay: React.FC<DialogueOverlayProps> = ({
   return (
     <div className="font-sans pointer-events-auto fixed inset-0 z-30 flex items-end justify-center bg-black/45 px-3 pb-4 pt-12 sm:px-6 sm:pb-7">
       <div className="relative w-full max-w-3xl">
-        {/* Retrato del personaje posicionado DETRÁS (z-10) emergiendo sobre la solapa izquierda */}
-        {dialogue.portraitUrl && !imgFailed && (
+        {/* Retrato del personaje posicionado DETRÁS (z-10) emergiendo sobre la solapa izquierda sin distorsión */}
+        {portraitSrc && !imgFailed && (
           <div
-            key={dialogue.portraitUrl}
-            className="animate-portrait-emerge pointer-events-none absolute left-2 sm:left-6 bottom-[54%] sm:bottom-[52%] z-10 h-56 w-40 sm:h-72 sm:w-52 max-h-[46vh] flex items-end justify-center"
+            key={portraitSrc}
+            className="dialogue-portrait-stage animate-portrait-emerge pointer-events-none absolute left-1.5 sm:left-5 bottom-[calc(100%-4.25rem)] sm:bottom-[calc(100%-5rem)] z-10 w-[clamp(10rem,44vw,14rem)] sm:w-[clamp(13rem,28vw,16.5rem)] h-[clamp(14.5rem,44vh,19.5rem)] sm:h-[clamp(18.5rem,50vh,23.5rem)] flex items-end justify-center overflow-visible"
           >
-            {/* Halo atmosférico suave para contrastar las líneas de tinta sobre fondos 3D oscuros */}
+            {/* Resplandor radial uniforme sin blur costoso para contrastar siluetas oscuras y transparencias en móvil */}
             <div
               aria-hidden="true"
-              className="absolute inset-x-2 top-3 bottom-4 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(250,246,238,0.92)_0%,rgba(250,246,238,0.62)_48%,rgba(250,246,238,0)_76%)] blur-md"
+              className="dialogue-portrait-backdrop absolute inset-x-1 top-2 bottom-3 rounded-full"
             />
             <img
-              src={dialogue.portraitUrl}
+              src={portraitSrc}
               alt={dialogue.speakerName}
-              referrerPolicy="no-referrer"
+              decoding="async"
+              draggable={false}
               onError={() => setImgFailed(true)}
-              className="relative h-full w-full object-contain object-bottom [filter:drop-shadow(0_0_2px_rgba(250,246,238,0.98))_drop-shadow(0_0_6px_rgba(250,246,238,0.88))_drop-shadow(0_10px_20px_rgba(0,0,0,0.45))]"
+              className="dialogue-portrait-img relative select-none"
             />
           </div>
         )}

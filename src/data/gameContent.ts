@@ -10,13 +10,13 @@ import {
   WorldMarker,
 } from '../types';
 
+import { CHARACTER_PORTRAITS } from './characterPortraits';
+
 export const PORTRAITS = {
-  conserje: '/assets/aistudio/Conserje_be5458b0.png',
-  hotaru: '/assets/aistudio/Hotaru_4d378ebf.png',
-  kaeru: '/assets/aistudio/Kaeru_0a390eb4.png',
-  hanako: '/assets/aistudio/Hanako_0752d4d7.png',
-  profesor: '/assets/aistudio/Profesor_0a390eb4.png',
-  tsuki: '/assets/aistudio/Tsuki_f950e1ef.png',
+  ...CHARACTER_PORTRAITS,
+  // Alias de compatibilidad hacia los nuevos identificadores 'kaoru' y 'profe'
+  kaeru: CHARACTER_PORTRAITS.kaoru,
+  profesor: CHARACTER_PORTRAITS.profe,
 };
 
 export const MAP_IMAGES = {
@@ -177,7 +177,8 @@ export const WORLD_MARKERS: WorldMarker[] = [
     sublabel: 'Estudiante · Entrada Principal',
     floor: 1,
     position: [-2.8, 0, -0.8],
-    portraitUrl: PORTRAITS.tsuki,
+    characterId: 'tsuki',
+    portraitUrl: CHARACTER_PORTRAITS.tsuki,
   },
   {
     id: 'objeto_vestibulo',
@@ -198,7 +199,8 @@ export const WORLD_MARKERS: WorldMarker[] = [
     sublabel: 'Personal de Mantenimiento',
     floor: 1,
     position: [-27.2, 0, -20.8],
-    portraitUrl: PORTRAITS.conserje,
+    characterId: 'conserje',
+    portraitUrl: CHARACTER_PORTRAITS.conserje,
   },
   {
     id: 'objeto_armario',
@@ -221,7 +223,8 @@ export const WORLD_MARKERS: WorldMarker[] = [
     sublabel: 'Estudiante · Zona de Bicicletas',
     floor: 1,
     position: [24.2, 0, -18.5],
-    portraitUrl: PORTRAITS.hotaru,
+    characterId: 'hotaru',
+    portraitUrl: CHARACTER_PORTRAITS.hotaru,
   },
   {
     id: 'objeto_hotaru',
@@ -235,16 +238,17 @@ export const WORLD_MARKERS: WorldMarker[] = [
     challengeType: 'shake_bikes',
   },
 
-  // --- PASO 3: Kaeru y Campanita cerca de 1B (1F) ---
+  // --- PASO 3: Kaoru y Campanita cerca de 1B (1F) ---
   {
     id: 'personaje_kaeru',
     kind: 'personaje',
     glbFile: 'dpwii_parcial2_marcadores_personaje.glb',
-    label: 'Kaeru',
+    label: 'Kaoru',
     sublabel: 'Estudiante · Pasillo frente a 1B',
     floor: 1,
     position: [-12.0, 0, 0.7],
-    portraitUrl: PORTRAITS.kaeru,
+    characterId: 'kaoru',
+    portraitUrl: CHARACTER_PORTRAITS.kaoru,
   },
   {
     id: 'objeto_kaeru',
@@ -319,7 +323,8 @@ export const WORLD_MARKERS: WorldMarker[] = [
     sublabel: 'Estudiante · Baños del 2° Piso',
     floor: 2,
     position: [24.2, 0, -18.5],
-    portraitUrl: PORTRAITS.hanako,
+    characterId: 'hanako',
+    portraitUrl: CHARACTER_PORTRAITS.hanako,
   },
   {
     id: 'objeto_hanako',
@@ -342,7 +347,8 @@ export const WORLD_MARKERS: WorldMarker[] = [
     sublabel: 'Docente · Sala de Profesores',
     floor: 2,
     position: [-27.2, 0, -20.8],
-    portraitUrl: PORTRAITS.profesor,
+    characterId: 'profe',
+    portraitUrl: CHARACTER_PORTRAITS.profe,
   },
   {
     id: 'objeto_profesor',
@@ -397,7 +403,7 @@ export const INITIAL_CLUES: ClueRecord[] = [
     location: 'Zona de bicicletas · 1° Piso',
     sensorUsed: 'Sacudida',
     summary:
-      'Tal como contaban los de la 2C, al sacudir las hojas secas aparecieron huellas hacia el pasillo; dicen que Kaeru siempre pasa el rato frente a la 1B.',
+      'Tal como contaban los de la 2C, al sacudir las hojas secas aparecieron huellas hacia el pasillo; dicen que Kaoru siempre pasa el rato frente a la 1B.',
     unlocked: false,
   },
   {
@@ -407,7 +413,7 @@ export const INITIAL_CLUES: ClueRecord[] = [
     location: 'Pasillo frente a la 1B',
     sensorUsed: 'Soplo / Sonido',
     summary:
-      'Después de comprobar lo que decían las chicas de la 1B sobre la campanita, Kaeru recordó que los de la 2D siempre mencionan a Hanako en los baños de arriba.',
+      'Después de comprobar lo que decían las chicas de la 1B sobre la campanita, Kaoru recordó que los de la 2D siempre mencionan a Hanako en los baños de arriba.',
     unlocked: false,
   },
   {
@@ -451,7 +457,7 @@ export const PHASE_INDICATORS: Record<GamePhase, PhaseIndicator> = {
   ESTADO_3: {
     stageTag: 'Rumor IV',
     title: 'Conversaciones frente a la 1B',
-    whisper: 'Dicen que Kaeru siempre se queda conversando cerca de la puerta de la 1B.',
+    whisper: 'Dicen que Kaoru siempre se queda conversando cerca de la puerta de la 1B.',
   },
   ESTADO_4: {
     stageTag: 'Rumor V',
@@ -569,20 +575,22 @@ export const POST_CHALLENGE_DIALOGUES: Record<SensorChallengeType, DialoguePaylo
   },
   shake_bikes: {
     markerId: 'personaje_hotaru',
+    characterId: 'hotaru',
     speakerName: 'Hotaru',
     speakerRole: 'Estudiante · Zona de Bicicletas',
-    portraitUrl: PORTRAITS.hotaru,
+    portraitUrl: CHARACTER_PORTRAITS.hotaru,
     lines: [
       '¡Mira eso, de verdad habían quedado las huellas de lodo debajo de las hojas! Regresaron directo hacia el pasillo principal.',
-      '¿Escuchaste lo que cuentan sobre Kaeru? Unos compañeros de la 1B me dijeron que casi siempre se queda ahí afuera de su salón, justo donde colgaron esa campanita de vidrio.',
+      '¿Escuchaste lo que cuentan sobre Kaoru? Unos compañeros de la 1B me dijeron que casi siempre se queda ahí afuera de su salón, justo donde colgaron esa campanita de vidrio.',
     ],
     sensorCompletion: SENSOR_COMPLETION_DATA.shake_bikes,
   },
   mic_whisper: {
     markerId: 'personaje_kaeru',
-    speakerName: 'Kaeru',
+    characterId: 'kaoru',
+    speakerName: 'Kaoru',
     speakerRole: 'Estudiante · Pasillo frente a 1B',
-    portraitUrl: PORTRAITS.kaeru,
+    portraitUrl: CHARACTER_PORTRAITS.kaoru,
     lines: [
       'No lo puedo creer, ¡en serio se escuchó como si alguien subiera con prisa por las escaleras!',
       'Ahora que lo pienso, los chicos de la 2D siempre dicen que cuando se pierde algo extraño en la escuela, termina enterándose Hanako allá arriba, en los baños que están pasando la 2C y la 2D.',
@@ -591,9 +599,10 @@ export const POST_CHALLENGE_DIALOGUES: Record<SensorChallengeType, DialoguePaylo
   },
   light_hanako: {
     markerId: 'personaje_hanako',
+    characterId: 'hanako',
     speakerName: 'Hanako',
     speakerRole: 'Estudiante · Baños del 2° Piso',
-    portraitUrl: PORTRAITS.hanako,
+    portraitUrl: CHARACTER_PORTRAITS.hanako,
     lines: [
       '¡Ya ves que tenían razón los de la 2C! En cuanto quedó todo oscuro se distinguió claramente lo que escribieron en el vidrio, y mira, hasta habían dejado esta llave pequeña en el borde.',
       'Hace un momento escuché a unas chicas de la 2A comentar que al otro extremo de este piso, en la sala de profesores, hay un docente que guarda bajo llave los registros que no aparecieron en la entrada.',
@@ -602,9 +611,10 @@ export const POST_CHALLENGE_DIALOGUES: Record<SensorChallengeType, DialoguePaylo
   },
   gyro_profesor: {
     markerId: 'personaje_profesor',
+    characterId: 'profe',
     speakerName: 'El Profesor',
     speakerRole: 'Docente · Sala de Profesores',
-    portraitUrl: PORTRAITS.profesor,
+    portraitUrl: CHARACTER_PORTRAITS.profe,
     lines: [
       '¡Vaya, la abriste al primer intento! Mira aquí dentro: este es tu registro de inscripción, con razón no aparecías abajo; te asignaron al salón 2C, en este mismo piso.',
       'Por cierto, hace un rato escuché a unos chicos comentar que la puerta de la 2C tenía trabado el seguro por fuera, pero decían que alguien dejó una pieza justo frente a la entrada para poder destrabarla.',
@@ -622,9 +632,10 @@ export function resolveMarkerDialogue(
     case 'personaje_tsuki': {
       return {
         markerId,
+        characterId: 'tsuki',
         speakerName: 'Tsuki',
         speakerRole: 'Estudiante · Entrada Principal',
-        portraitUrl: PORTRAITS.tsuki,
+        portraitUrl: CHARACTER_PORTRAITS.tsuki,
         lines:
           phase === 'ESTADO_0'
             ? [
@@ -658,9 +669,10 @@ export function resolveMarkerDialogue(
       if (phase === 'ESTADO_0') {
         return {
           markerId,
+          characterId: 'conserje',
           speakerName: 'El Conserje',
           speakerRole: 'Personal de Mantenimiento',
-          portraitUrl: PORTRAITS.conserje,
+          portraitUrl: CHARACTER_PORTRAITS.conserje,
           lines: [
             '¿Todavía caminando por el pasillo? Mira que de la 1A a la 1D ya entraron todos... Bueno, no importa, seguro eres otro de los alumnos que no aparecieron en las listas de la entrada.',
             'Yo no sé mucho de trámites de secretaría, pero ayer por la tarde escuché a dos chicos de la 1D murmurando aquí en la puerta que alguien había escondido un sobre detrás de las cubetas.',
@@ -674,9 +686,10 @@ export function resolveMarkerDialogue(
       if (phase === 'ESTADO_1') {
         return {
           markerId,
+          characterId: 'conserje',
           speakerName: 'El Conserje',
           speakerRole: 'Personal de Mantenimiento',
-          portraitUrl: PORTRAITS.conserje,
+          portraitUrl: CHARACTER_PORTRAITS.conserje,
           lines: [
             'Solo te repito lo que les oí decir a esos dos alumnos de la 1D: que habían dejado algo guardado entre los paños y las escobas de ese armario viejo de ahí al lado.',
           ],
@@ -685,9 +698,10 @@ export function resolveMarkerDialogue(
       }
       return {
         markerId,
+        characterId: 'conserje',
         speakerName: 'El Conserje',
         speakerRole: 'Personal de Mantenimiento',
-        portraitUrl: PORTRAITS.conserje,
+        portraitUrl: CHARACTER_PORTRAITS.conserje,
         lines: [
           '¿Así que era verdad que habían escondido una nota ahí dentro? Hoy temprano también escuché murmullos que venían del otro extremo de este piso, por el patio donde dejan las bicicletas.',
         ],
@@ -714,9 +728,10 @@ export function resolveMarkerDialogue(
       if (phase === 'ESTADO_0' || phase === 'ESTADO_1') {
         return {
           markerId,
+          characterId: 'hotaru',
           speakerName: 'Hotaru',
           speakerRole: 'Estudiante · Zona de Bicicletas',
-          portraitUrl: PORTRAITS.hotaru,
+          portraitUrl: CHARACTER_PORTRAITS.hotaru,
           lines: [
             'Uf, qué fresco está el aire aquí afuera... Oye, hace un momento pasaron unos compañeros de la 1C diciendo que el conserje se estaba quejando allá en el cuarto de limpieza del otro lado.',
           ],
@@ -726,9 +741,10 @@ export function resolveMarkerDialogue(
         if (spokenFlags.hotaru) {
           return {
             markerId,
+            characterId: 'hotaru',
             speakerName: 'Hotaru',
             speakerRole: 'Estudiante · Zona de Bicicletas',
-            portraitUrl: PORTRAITS.hotaru,
+            portraitUrl: CHARACTER_PORTRAITS.hotaru,
             lines: [
               'En serio, eso mismo contaban los chicos de la 2C: que hasta que no hubo una buena sacudida ahí donde están las bicicletas llenas de hojas, no se vio nada.',
             ],
@@ -737,9 +753,10 @@ export function resolveMarkerDialogue(
         }
         return {
           markerId,
+          characterId: 'hotaru',
           speakerName: 'Hotaru',
           speakerRole: 'Estudiante · Zona de Bicicletas',
-          portraitUrl: PORTRAITS.hotaru,
+          portraitUrl: CHARACTER_PORTRAITS.hotaru,
           lines: [
             '¿Esa nota salió del cuarto de limpieza? Es increíble lo rápido que corren los rumores entre los chicos de la 1A.',
             'Mira, te soy sincero: hoy cuando llegué alcancé a ver a alguien salir deprisa de entre las bicicletas, pero el viento llenó todo el suelo de hojas secas y cubrió hacia dónde caminó.',
@@ -751,11 +768,12 @@ export function resolveMarkerDialogue(
       }
       return {
         markerId,
+        characterId: 'hotaru',
         speakerName: 'Hotaru',
         speakerRole: 'Estudiante · Zona de Bicicletas',
-        portraitUrl: PORTRAITS.hotaru,
+        portraitUrl: CHARACTER_PORTRAITS.hotaru,
         lines: [
-          'Por lo que comentaban unos compañeros de la 1B hace un rato, Kaeru lleva toda la mañana en el pasillo principal, justo frente a su salón.',
+          'Por lo que comentaban unos compañeros de la 1B hace un rato, Kaoru lleva toda la mañana en el pasillo principal, justo frente a su salón.',
         ],
       };
     }
@@ -783,14 +801,15 @@ export function resolveMarkerDialogue(
       return null;
     }
 
-    // ================= PASO 3: KAERU & CAMPANITA FRENTE A 1B =================
+    // ================= PASO 3: KAORU & CAMPANITA FRENTE A 1B =================
     case 'personaje_kaeru': {
       if (phase === 'ESTADO_0' || phase === 'ESTADO_1' || phase === 'ESTADO_2') {
         return {
           markerId,
-          speakerName: 'Kaeru',
+          characterId: 'kaoru',
+          speakerName: 'Kaoru',
           speakerRole: 'Estudiante · Pasillo frente a 1B',
-          portraitUrl: PORTRAITS.kaeru,
+          portraitUrl: CHARACTER_PORTRAITS.kaoru,
           lines: [
             'Qué silencioso se siente el pasillo con las puertas de la 1A a la 1D cerradas... Escuché que afuera, por el patio de las bicicletas, andaban comentando algo sobre unas hojas extraviadas.',
           ],
@@ -800,9 +819,10 @@ export function resolveMarkerDialogue(
         if (spokenFlags.kaeru) {
           return {
             markerId,
-            speakerName: 'Kaeru',
+            characterId: 'kaoru',
+            speakerName: 'Kaoru',
             speakerRole: 'Estudiante · Pasillo frente a 1B',
-            portraitUrl: PORTRAITS.kaeru,
+            portraitUrl: CHARACTER_PORTRAITS.kaoru,
             lines: [
               'Solo te comparto lo que decían las chicas de la 1B: que como aquí adentro no corre aire, esa campanita de vidrio únicamente suena si alguien se acerca y sopla suavemente.',
             ],
@@ -811,9 +831,10 @@ export function resolveMarkerDialogue(
         }
         return {
           markerId,
-          speakerName: 'Kaeru',
+          characterId: 'kaoru',
+          speakerName: 'Kaoru',
           speakerRole: 'Estudiante · Pasillo frente a 1B',
-          portraitUrl: PORTRAITS.kaeru,
+          portraitUrl: CHARACTER_PORTRAITS.kaoru,
           lines: [
             'Ah, ¿vienes de conversar con Hotaru allá afuera? Aquí entre la 1A y la 1B no se habla de otro tema más que de los alumnos nuevos que no aparecieron en ninguna lista.',
             'Hace poco vi pasar a alguien con prisa doblando hacia las escaleras, pero iba hablando en voz tan baja que no alcancé a oír a qué parte subía.',
@@ -825,9 +846,10 @@ export function resolveMarkerDialogue(
       }
       return {
         markerId,
-        speakerName: 'Kaeru',
+        characterId: 'kaoru',
+        speakerName: 'Kaoru',
         speakerRole: 'Estudiante · Pasillo frente a 1B',
-        portraitUrl: PORTRAITS.kaeru,
+        portraitUrl: CHARACTER_PORTRAITS.kaoru,
         lines: [
           'Casi todos los de la 2C y la 2D coinciden en lo mismo: que arriba, en los baños del fondo a la derecha, Hanako siempre termina enterándose de quién guardó cada cosa.',
         ],
@@ -862,9 +884,10 @@ export function resolveMarkerDialogue(
       if (phase !== 'ESTADO_4' && phase !== 'ESTADO_5' && phase !== 'ESTADO_FINAL') {
         return {
           markerId,
+          characterId: 'hanako',
           speakerName: 'Hanako',
           speakerRole: 'Estudiante · Baños del 2° Piso',
-          portraitUrl: PORTRAITS.hanako,
+          portraitUrl: CHARACTER_PORTRAITS.hanako,
           lines: [
             '¿Qué haces aquí arriba tan temprano? Hace un rato escuché a unos compañeros de la 2B comentar que abajo, frente a la 1B, todavía estaban tratando de averiguar hacia dónde habían ido.',
           ],
@@ -874,9 +897,10 @@ export function resolveMarkerDialogue(
         if (spokenFlags.hanako) {
           return {
             markerId,
+            characterId: 'hanako',
             speakerName: 'Hanako',
             speakerRole: 'Estudiante · Baños del 2° Piso',
-            portraitUrl: PORTRAITS.hanako,
+            portraitUrl: CHARACTER_PORTRAITS.hanako,
             lines: [
               'Recuerda lo que comentaban los chicos de la 2C: con el reflejo tan fuerte que entra aquí, en ese espejo de los lavabos no se alcanza a ver nada a menos que cubran toda la luz.',
             ],
@@ -885,9 +909,10 @@ export function resolveMarkerDialogue(
         }
         return {
           markerId,
+          characterId: 'hanako',
           speakerName: 'Hanako',
           speakerRole: 'Estudiante · Baños del 2° Piso',
-          portraitUrl: PORTRAITS.hanako,
+          portraitUrl: CHARACTER_PORTRAITS.hanako,
           lines: [
             'Jaja, así que tú eres el estudiante nuevo del que venían comentando las chicas de la 2D por todo el pasillo...',
             '¿Ya te enteraste de lo que cuentan sobre el espejo grande aquí frente a los lavabos? Dicen que ayer alguien escribió con el dedo sobre el vapor hacia dónde llevaron las listas que faltaban.',
@@ -899,9 +924,10 @@ export function resolveMarkerDialogue(
       }
       return {
         markerId,
+        characterId: 'hanako',
         speakerName: 'Hanako',
         speakerRole: 'Estudiante · Baños del 2° Piso',
-        portraitUrl: PORTRAITS.hanako,
+        portraitUrl: CHARACTER_PORTRAITS.hanako,
         lines: [
           'Según les escuché decir a las chicas de la 2A, en la sala de profesores del otro extremo de este piso sigue estando el docente que guarda esos registros bajo llave.',
         ],
@@ -936,9 +962,10 @@ export function resolveMarkerDialogue(
       if (phase !== 'ESTADO_5' && phase !== 'ESTADO_FINAL') {
         return {
           markerId,
+          characterId: 'profe',
           speakerName: 'El Profesor',
           speakerRole: 'Docente · Sala de Profesores',
-          portraitUrl: PORTRAITS.profesor,
+          portraitUrl: CHARACTER_PORTRAITS.profe,
           lines: [
             'Disculpa, todavía estoy ordenando las listas de la 2A a la 2D. Hace poco comentaban en secretaría que alguien había visto una llave pequeña extraviada al otro lado de este piso.',
           ],
@@ -948,9 +975,10 @@ export function resolveMarkerDialogue(
         if (spokenFlags.profesor) {
           return {
             markerId,
+            characterId: 'profe',
             speakerName: 'El Profesor',
             speakerRole: 'Docente · Sala de Profesores',
-            portraitUrl: PORTRAITS.profesor,
+            portraitUrl: CHARACTER_PORTRAITS.profe,
             lines: [
               'Tal como contaba el personal de secretaría: mientras esa caja del escritorio tenga aunque sea una ligera inclinación, el seguro interno no cede.',
             ],
@@ -959,9 +987,10 @@ export function resolveMarkerDialogue(
         }
         return {
           markerId,
+          characterId: 'profe',
           speakerName: 'El Profesor',
           speakerRole: 'Docente · Sala de Profesores',
-          portraitUrl: PORTRAITS.profesor,
+          portraitUrl: CHARACTER_PORTRAITS.profe,
           lines: [
             'Vaya, así que era cierto lo que comentaban en secretaría sobre un estudiante de nuevo ingreso preguntando desde la 1A hasta la 2D... y además apareció la llave pequeña que se había perdido.',
             'Los registros de inscripción que quedaron fuera del tablero están guardados en esa caja antigua sobre el escritorio central, aunque debo advertirte que tiene su historia.',
@@ -973,9 +1002,10 @@ export function resolveMarkerDialogue(
       }
       return {
         markerId,
+        characterId: 'profe',
         speakerName: 'El Profesor',
         speakerRole: 'Docente · Sala de Profesores',
-        portraitUrl: PORTRAITS.profesor,
+        portraitUrl: CHARACTER_PORTRAITS.profe,
         lines: [
           'En tu registro dice claramente que te corresponde el salón 2C, saliendo aquí al pasillo de este segundo piso. Dicen los alumnos que dejaron una pieza justo frente a esa puerta para quitarle el seguro.',
         ],
