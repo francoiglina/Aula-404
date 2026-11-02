@@ -192,4 +192,118 @@
   }
 }
 
+/* Minimalist J-Horror Plain-Text Location Notice (0.5s fade-in + 2.0s hold + 0.8s fade-out = 3.3s) */
+@keyframes locationNoticeSequence {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 4px));
+    animation-timing-function: ease-out;
+  }
+  15.1515% {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+    animation-timing-function: linear;
+  }
+  75.7576% {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+    animation-timing-function: ease-in-out;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% - 3px));
+  }
+}
+
+.location-notice-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 25;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  max-width: 92vw;
+  text-align: center;
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  animation: locationNoticeSequence 3300ms forwards;
+}
+
+/* Nivel 1: Texto mediano (迷幽高校) */
+.location-notice-kanji {
+  font-family: var(--font-ui-inter);
+  font-size: clamp(1.05rem, 2.8vw, 1.35rem);
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  padding-left: 0.24em;
+  line-height: 1.25;
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow:
+    0 1px 10px rgba(0, 0, 0, 0.92),
+    0 0 22px rgba(0, 0, 0, 0.74);
+}
+
+/* Nivel 2: Texto pequeño (Instituto de las Sombras Perdidas) */
+.location-notice-subtitle {
+  margin-top: 0.2rem;
+  font-family: var(--font-ui-inter);
+  font-size: clamp(0.72rem, 1.8vw, 0.88rem);
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  padding-left: 0.14em;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.84);
+  text-shadow:
+    0 1px 8px rgba(0, 0, 0, 0.92),
+    0 0 18px rgba(0, 0, 0, 0.72);
+}
+
+/* Nivel 3: Texto grande principal (- Primer Piso - / - Segundo Piso -) */
+.location-notice-floor {
+  margin-top: 0.45rem;
+  font-family: var(--font-ui-inter);
+  font-size: clamp(1.5rem, 4.8vw, 2.25rem);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding-left: 0.08em;
+  line-height: 1.18;
+  color: #ffffff;
+  text-shadow:
+    0 2px 14px rgba(0, 0, 0, 0.96),
+    0 0 30px rgba(0, 0, 0, 0.8);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .location-notice-overlay {
+    animation-duration: 2500ms;
+  }
+}
+
+/* Fondo oscuro atmosférico para el canvas WebGL transparente de los marcadores GLB */
+.marker-viewport-objeto {
+  background: radial-gradient(
+    circle at 50% 52%,
+    rgba(225, 29, 72, 0.16) 0%,
+    rgba(12, 10, 9, 0.96) 66%,
+    #09090b 100%
+  );
+}
+
+.marker-viewport-persona {
+  background: radial-gradient(
+    circle at 50% 52%,
+    rgba(14, 165, 233, 0.16) 0%,
+    rgba(12, 10, 9, 0.96) 66%,
+    #09090b 100%
+  );
+}
+
+
 

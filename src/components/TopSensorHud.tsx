@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, Map as MapIcon, Volume2, VolumeX } from 'lucide-react';
+import { BookOpen, Box, Map as MapIcon, Volume2, VolumeX } from 'lucide-react';
 import { FloorNumber, PhaseIndicator } from '../types';
 
 const ROMAN_NUMERALS = ['0', 'I', 'II', 'III', 'IV', 'V', 'VI'];
@@ -12,6 +12,7 @@ interface TopSensorHudProps {
   isMuted: boolean;
   onOpenMap: () => void;
   onOpenClues: () => void;
+  onOpenMarkers: () => void;
   onToggleMute: () => void;
 }
 
@@ -23,6 +24,7 @@ export const TopSensorHud: React.FC<TopSensorHudProps> = ({
   isMuted,
   onOpenMap,
   onOpenClues,
+  onOpenMarkers,
   onToggleMute,
 }) => {
   const romanProgress =
@@ -67,7 +69,7 @@ export const TopSensorHud: React.FC<TopSensorHudProps> = ({
         </p>
       </div>
 
-      {/* Zone 3: Map, Rumors Archive & Audio Actions */}
+      {/* Zone 3: Map, Rumors, 3D Markers & Audio Actions */}
       <div className="flex items-center gap-1.5 shrink-0">
         <button
           type="button"
@@ -92,6 +94,16 @@ export const TopSensorHud: React.FC<TopSensorHudProps> = ({
 
         <button
           type="button"
+          onClick={onOpenMarkers}
+          className="min-h-[40px] px-3 rounded-lg border border-stone-800 bg-stone-900 text-xs font-medium text-stone-100 hover:bg-stone-800 active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+        >
+          <Box className="h-3.5 w-3.5 text-rose-400 shrink-0" />
+          <span className="hidden md:inline">Marcadores 3D</span>
+          <span className="md:hidden">3D</span>
+        </button>
+
+        <button
+          type="button"
           data-no-confirm-sfx="true"
           onClick={onToggleMute}
           aria-label={isMuted ? 'Activar sonido' : 'Silenciar sonido'}
@@ -107,4 +119,5 @@ export const TopSensorHud: React.FC<TopSensorHudProps> = ({
     </header>
   );
 };
+
 

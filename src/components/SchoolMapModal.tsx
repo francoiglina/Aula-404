@@ -1,16 +1,20 @@
 import React, { useState } from 'react';
-import { BookOpen, CheckCircle2, Lock, Map as MapIcon, Navigation, X } from 'lucide-react';
+import { BookOpen, Box, CheckCircle2, Lock, Map as MapIcon, Navigation, X } from 'lucide-react';
 import { MAP_IMAGES } from '../data/gameContent';
 import { ClueRecord, FloorNumber, PhaseIndicator } from '../types';
+import { MarkerShowcaseView } from './MarkerShowcaseView';
 
 const ROMAN_STEPS = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
 
+export type SchoolModalTab = 'map' | 'clues' | 'markers';
+
 interface SchoolMapModalProps {
-  initialTab: 'map' | 'clues';
+  initialTab: SchoolModalTab;
   currentFloor: FloorNumber;
   playerCoords: { x: number; z: number; yaw: number; floor: FloorNumber };
   clues: ClueRecord[];
   phaseIndicator: PhaseIndicator;
+  onTabChange?: (tab: SchoolModalTab) => void;
   onClose: () => void;
 }
 
@@ -20,11 +24,17 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
   playerCoords,
   clues,
   phaseIndicator,
+  onTabChange,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<'map' | 'clues'>(initialTab);
+  const [activeTab, setActiveTab] = useState<SchoolModalTab>(initialTab);
   const [viewingFloor, setViewingFloor] = useState<FloorNumber>(currentFloor);
   const [mapImgError, setMapImgError] = useState<Record<number, boolean>>({});
+
+  const selectTab = (tab: SchoolModalTab) => {
+    setActiveTab(tab);
+    onTabChange?.(tab);
+  };
 
   // Map world coordinates (x: -31..31, z: -26..9) onto percentage coordinates for live radar pin
   const radarLeftPct = Math.min(92, Math.max(8, ((playerCoords.x + 31) / 62) * 100));
@@ -35,10 +45,10 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
       <div className="w-full max-w-3xl rounded-3xl border border-stone-700 bg-stone-950 p-4 sm:p-6 shadow-2xl my-auto">
         {/* Top Modal Header & Segmented Switcher */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-800 pb-3.5">
-          <div className="flex items-center gap-1 rounded-xl bg-stone-900 p-1 border border-stone-800">
+          <div className="flex flex-wrap items-center gap-1 rounded-xl bg-stone-900 p-1 border border-stone-800">
             <button
               type="button"
-              onClick={() => setActiveTab('map')}
+              onClick={() => selectTab('map')}
               className={`min-h-[38px] px-3.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
                 activeTab === 'map'
                   ? 'bg-amber-500 font-semibold text-stone-950'
@@ -51,7 +61,7 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
 
             <button
               type="button"
-              onClick={() => setActiveTab('clues')}
+              onClick={() => selectTab('clues')}
               className={`min-h-[38px] px-3.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
                 activeTab === 'clues'
                   ? 'bg-amber-500 font-semibold text-stone-950'
@@ -61,12 +71,25 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
               <BookOpen className="h-3.5 w-3.5" />
               <span>Archivo de Rumores</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => selectTab('markers')}
+              className={`min-h-[38px] px-3.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                activeTab === 'markers'
+                  ? 'bg-amber-500 font-semibold text-stone-950'
+                  : 'font-medium text-stone-300 hover:text-stone-100'
+              }`}
+            >
+              <Box className="h-3.5 w-3.5" />
+              <span>Marcadores 3D</span>
+            </button>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            aria-label="Cerrar mapa"
+            aria-label="Cerrar ventana"
             className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-800 bg-stone-900 text-stone-400 hover:text-stone-100 flex items-center justify-center cursor-pointer"
           >
             <X className="h-4 w-4" />
@@ -161,6 +184,8 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
               )}
             </div>
           </div>
+        ) : activeTab === 'markers' ? (
+          <MarkerShowcaseView />
         ) : (
           <div className="mt-4 max-h-[58vh] overflow-y-auto space-y-2.5 pr-1">
             {clues.map((clue) => (
@@ -202,3 +227,4 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
     </div>
   );
 };
+

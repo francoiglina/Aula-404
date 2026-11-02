@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { DialogueOverlay } from './components/DialogueOverlay';
 import { EndingModal } from './components/EndingModal';
+import { LocationNotice } from './components/LocationNotice';
 import { MinimapHud } from './components/MinimapHud';
 import { MobileControlsOverlay } from './components/MobileControlsOverlay';
 import { NewClueBanner } from './components/NewClueBanner';
-import { SchoolMapModal } from './components/SchoolMapModal';
+import { SchoolMapModal, SchoolModalTab } from './components/SchoolMapModal';
 import { SensorChallengeModal } from './components/SensorChallengeModal';
 import { TopSensorHud } from './components/TopSensorHud';
 import { WelcomePermissionsModal } from './components/WelcomePermissionsModal';
@@ -15,6 +16,11 @@ import {
   POST_CHALLENGE_DIALOGUES,
   resolveMarkerDialogue,
 } from './data/gameContent';
+import {
+  resolveAllowedFloorNotice,
+  SCHOOL_KANJI_TITLE,
+  SCHOOL_SUBTITLE,
+} from './data/locationZones';
 import { sensorService } from './services/sensorService';
 import { soundEngine } from './services/soundEngine';
 import { SchoolEngine } from './three/SchoolEngine';
@@ -46,7 +52,7 @@ export default function App() {
   // Overlays & Modals
   const [activeDialogue, setActiveDialogue] = useState<DialoguePayload | null>(null);
   const [activeChallenge, setActiveChallenge] = useState<SensorChallengeType | null>(null);
-  const [mapModalTab, setMapModalTab] = useState<'map' | 'clues' | null>(null);
+  const [mapModalTab, setMapModalTab] = useState<SchoolModalTab | null>(null);
   const [showEndingModal, setShowEndingModal] = useState(false);
 
   // Staircase fade-to-black transition state
@@ -64,13 +70,25 @@ export default function App() {
   }>({ x: -1.5, z: 6.0, yaw: 0, floor: 1 });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [clueBanner, setClueBanner] = useState<{ id: number; text: string } | null>(null);
+  const [locationNotice, setLocationNotice] = useState<{
+    id: number;
+    floor: FloorNumber;
+    floorTitle: string;
+  } | null>(null);
 
   // Mutable refs so Three.js callbacks never read stale React state
+  const isInitializedRef = useRef(isInitialized);
+  const lastNotifiedFloorRef = useRef<FloorNumber | null>(null);
+  const locationNoticeTimerRef = useRef<number | null>(null);
   const phaseRef = useRef<GamePhase>(phase);
   const finalSubstateRef = useRef<FinalSubstate>(finalSubstate);
   const spokenFlagsRef = useRef<Record<string, boolean>>(spokenFlags);
   const unlockedObjectsRef = useRef<Record<string, boolean>>(unlockedObjects);
   const isBusyOverlayRef = useRef(false);
+
+  useEffect(() => {
+    isInitializedRef.current = isInitialized;
+  }, [isInitialized]);
 
   useEffect(() => {
     phaseRef.current = phase;
@@ -102,6 +120,7 @@ export default function App() {
         stairTransitionText
     );
     engineRef.current?.setMovementLocked(isBusyOverlayRef.current);
+    engineRef.current?.setExternalPause(mapModalTab === 'markers');
   }, [
     isInitialized,
     activeDialogue,
@@ -133,34 +152,74 @@ export default function App() {
     );
   }, []);
 
-  const triggerStairTransition = useCallback((marker: WorldMarker) => {
-    if (!marker.targetFloor || !marker.spawnAfterStairs) return;
-    const nextFloor = marker.targetFloor;
-    const spawn = marker.spawnAfterStairs;
-    const yaw = marker.spawnYaw ?? 0;
+  /**
+   * Dispara la notificación central de 3 niveles únicamente al entrar o cambiar entre Piso 1 y Piso 2.
+   * Ignora cualquier habitación individual, aula o pasillo secundario y evita repetir en el mismo piso.
+   */
+  const showLocationNotice = useCallback((zoneOrFloor: FloorNumber | string) => {
+    const resolved = resolveAllowedFloorNotice(zoneOrFloor);
+    if (!resolved) return;
 
-    soundEngine.playStairsTransition();
-    soundEngine.fadeOutBgm(0.35, { targetVolume: 0.14 });
-    setStairTransitionText(
-      nextFloor === 2 ? 'Subiendo al segundo piso...' : 'Bajando al primer piso...'
-    );
-    setStairFadeOpaque(true);
+    if (lastNotifiedFloorRef.current === resolved.floor) return;
+    lastNotifiedFloorRef.current = resolved.floor;
 
-    window.setTimeout(() => {
-      engineRef.current?.setFloor(nextFloor, spawn, yaw);
-      setCurrentFloor(nextFloor);
-      setPlayerCoords({ x: spawn[0], z: spawn[2], yaw, floor: nextFloor });
-    }, 380);
+    if (locationNoticeTimerRef.current !== null) {
+      clearTimeout(locationNoticeTimerRef.current);
+    }
 
-    window.setTimeout(() => {
-      setStairFadeOpaque(false);
-      soundEngine.fadeInBgm(0.7, 0.32);
-    }, 780);
+    const noticeId = Date.now();
+    setLocationNotice({
+      id: noticeId,
+      floor: resolved.floor,
+      floorTitle: resolved.floorTitle,
+    });
 
-    window.setTimeout(() => {
-      setStairTransitionText(null);
-    }, 1150);
+    locationNoticeTimerRef.current = window.setTimeout(() => {
+      setLocationNotice((prev) => (prev?.id === noticeId ? null : prev));
+      locationNoticeTimerRef.current = null;
+    }, 3320);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (locationNoticeTimerRef.current !== null) {
+        clearTimeout(locationNoticeTimerRef.current);
+      }
+    };
+  }, []);
+
+  const triggerStairTransition = useCallback(
+    (marker: WorldMarker) => {
+      if (!marker.targetFloor || !marker.spawnAfterStairs) return;
+      const nextFloor = marker.targetFloor;
+      const spawn = marker.spawnAfterStairs;
+      const yaw = marker.spawnYaw ?? 0;
+
+      soundEngine.playStairsTransition();
+      soundEngine.fadeOutBgm(0.35, { targetVolume: 0.14 });
+      setStairTransitionText(
+        nextFloor === 2 ? 'Subiendo al segundo piso...' : 'Bajando al primer piso...'
+      );
+      setStairFadeOpaque(true);
+
+      window.setTimeout(() => {
+        engineRef.current?.setFloor(nextFloor, spawn, yaw, { silentFloorNotice: true });
+        setCurrentFloor(nextFloor);
+        setPlayerCoords({ x: spawn[0], z: spawn[2], yaw, floor: nextFloor });
+      }, 380);
+
+      window.setTimeout(() => {
+        setStairFadeOpaque(false);
+        soundEngine.fadeInBgm(0.7, 0.32);
+        showLocationNotice(nextFloor);
+      }, 820);
+
+      window.setTimeout(() => {
+        setStairTransitionText(null);
+      }, 1150);
+    },
+    [showLocationNotice]
+  );
 
   const interactWithMarker = useCallback(
     (marker: WorldMarker) => {
@@ -257,6 +316,11 @@ export default function App() {
     const engine = new SchoolEngine(container, {
       onNearbyMarkerChange: (m) => setNearbyMarker(m),
       onZoneNameChange: (name) => setZoneName(name),
+      onFloorChangeNotice: (nextFloor) => {
+        if (isInitializedRef.current) {
+          showLocationNotice(nextFloor);
+        }
+      },
       onPlayerMove: (coords) => setPlayerCoords(coords),
     });
     engine.setMovementLocked(isBusyOverlayRef.current);
@@ -266,7 +330,7 @@ export default function App() {
       engine.dispose();
       engineRef.current = null;
     };
-  }, []);
+  }, [showLocationNotice]);
 
   // Global delegated UI confirmation SFX (menu_confirm.mp3) for all interactive buttons & modal options
   useEffect(() => {
@@ -310,7 +374,8 @@ export default function App() {
       setCameraAllowed(perms.cameraAllowed);
     }
     setIsInitialized(true);
-    showToast('Ya sonó el timbre y en los pasillos quedaron solo murmullos...');
+    lastNotifiedFloorRef.current = null;
+    showLocationNotice(1);
   };
 
   /**
@@ -413,8 +478,10 @@ export default function App() {
     setClues(INITIAL_CLUES);
     setCurrentFloor(1);
     engineRef.current?.setFinalSubstate('pendiente');
-    engineRef.current?.setFloor(1, [-1.5, 0, 6.0], 0);
+    engineRef.current?.setFloor(1, [-1.5, 0, 6.0], 0, { silentFloorNotice: true });
     soundEngine.fadeInBgm(1.2, 0.32);
+    lastNotifiedFloorRef.current = null;
+    showLocationNotice(1);
     showToast('Historia reiniciada · Primer día de clases');
   };
 
@@ -436,6 +503,7 @@ export default function App() {
           isMuted={isMuted}
           onOpenMap={() => setMapModalTab('map')}
           onOpenClues={() => setMapModalTab('clues')}
+          onOpenMarkers={() => setMapModalTab('markers')}
           onToggleMute={() => {
             const next = !isMuted;
             setIsMuted(next);
@@ -460,6 +528,21 @@ export default function App() {
             unlockedObjects={unlockedObjects}
             finalSubstate={finalSubstate}
             onOpenFullMap={() => setMapModalTab('map')}
+          />
+        )}
+
+      {/* Minimalist J-Horror 3-Level Floor Notice (1F & 2F Only, Frameless) */}
+      {locationNotice &&
+        isInitialized &&
+        !clueBanner &&
+        !activeDialogue &&
+        !activeChallenge &&
+        !mapModalTab &&
+        !showEndingModal &&
+        !stairFadeOpaque && (
+          <LocationNotice
+            key={locationNotice.id}
+            floorTitle={locationNotice.floorTitle}
           />
         )}
 
@@ -522,7 +605,7 @@ export default function App() {
         />
       )}
 
-      {/* Architectural Floor Maps (1F & 2F) + Rumors Archive */}
+      {/* Architectural Floor Maps (1F & 2F) + Rumors Archive + 3D GLB Markers Viewer */}
       {mapModalTab && (
         <SchoolMapModal
           initialTab={mapModalTab}
@@ -530,6 +613,7 @@ export default function App() {
           playerCoords={playerCoords}
           clues={clues}
           phaseIndicator={activePhaseIndicator}
+          onTabChange={(tab) => setMapModalTab(tab)}
           onClose={() => setMapModalTab(null)}
         />
       )}
@@ -558,7 +642,7 @@ export default function App() {
             {stairTransitionText}
           </p>
           <p className="mt-1.5 text-xs font-medium text-amber-400">
-            Escuela Tradicional · Aula 404
+            {SCHOOL_KANJI_TITLE} · {SCHOOL_SUBTITLE}
           </p>
         </div>
       )}

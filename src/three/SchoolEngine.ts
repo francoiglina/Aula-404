@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { WALKABLE_ZONES, WORLD_MARKERS } from '../data/gameContent';
 import { sensorService } from '../services/sensorService';
 import { soundEngine } from '../services/soundEngine';
 import { FinalSubstate, FloorNumber, GamePhase, WalkableRect, WorldMarker } from '../types';
+import { createGlbMarkerInstance, GlbMarkerInstance } from './Aula404MarkerViewer';
 import {
   createCharacterStandeeTexture,
   createLockerTexture,
@@ -18,6 +18,7 @@ import {
 interface EngineCallbacks {
   onNearbyMarkerChange: (marker: WorldMarker | null) => void;
   onZoneNameChange: (zoneName: string) => void;
+  onFloorChangeNotice?: (floor: FloorNumber) => void;
   onPlayerMove?: (pos: { x: number; z: number; yaw: number; floor: FloorNumber }) => void;
 }
 
@@ -25,6 +26,8 @@ interface MarkerVisual {
   marker: WorldMarker;
   root: THREE.Group;
   floatingCore: THREE.Object3D;
+  fallbackVisual: THREE.Group;
+  glbInstance?: GlbMarkerInstance;
   ringMesh: THREE.Mesh;
   standeeMesh?: THREE.Mesh;
   hitProxy: THREE.Mesh;
@@ -68,6 +71,7 @@ export class SchoolEngine {
   private markersById = new Map<string, MarkerVisual>();
   private hitProxies: THREE.Object3D[] = [];
   private shoeLockerColliders: THREE.Box3[] = [];
+  private lastNotifiedFloor: FloorNumber | null = null;
   private raycaster = new THREE.Raycaster();
 
   private currentFloor: FloorNumber = 1;
@@ -75,6 +79,7 @@ export class SchoolEngine {
   private finalSubstate: FinalSubstate = 'pendiente';
   private unlockedObjects = new Set<string>();
   private isPaused = false;
+  private externallyPaused = false;
   private movementLocked = true;
   private disposed = false;
 
@@ -181,7 +186,7 @@ export class SchoolEngine {
     this.setupLighting();
     this.buildSchoolArchitecture();
     this.buildMarkers();
-    this.setFloor(1, [-1.5, 0, 6.0], 0);
+    this.setFloor(1, [-1.5, 0, 6.0], 0, { silentFloorNotice: true });
 
     if (!this.isSoftwareGl) {
       this.renderer.compile(this.scene, this.camera);
@@ -1291,9 +1296,7 @@ export class SchoolEngine {
   }
 
   private buildMarkers() {
-    const gltfLoader = new GLTFLoader();
-
-    WORLD_MARKERS.forEach((marker) => {
+    WORLD_MARKERS.forEach((marker, idx) => {
       const root = new THREE.Group();
       root.position.set(marker.position[0], marker.position[1], marker.position[2]);
 
@@ -1335,13 +1338,16 @@ export class SchoolEngine {
       ringMesh.position.y = 0.022;
       root.add(ringMesh);
 
+      const fallbackVisual = new THREE.Group();
+      root.add(fallbackVisual);
+
       const floatingCore = new THREE.Group();
-      root.add(floatingCore);
+      fallbackVisual.add(floatingCore);
 
       let standeeMesh: THREE.Mesh | undefined;
 
       if (marker.kind === 'personaje') {
-        // Washi-paper Character Portrait Standee + Sky-Blue Crystal Beacon
+        // Fallback visual while GLB loads
         const standeeTex = createCharacterStandeeTexture(marker.portraitUrl || '', marker.label);
         const standeeMat = new THREE.MeshStandardMaterial({
           map: standeeTex,
@@ -1352,17 +1358,15 @@ export class SchoolEngine {
         });
         standeeMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.08, 1.62), standeeMat);
         standeeMesh.position.set(0, 1.05, 0);
-        root.add(standeeMesh);
+        fallbackVisual.add(standeeMesh);
 
-        // Wooden pedestal base
         const base = new THREE.Mesh(
           new THREE.CylinderGeometry(0.36, 0.42, 0.14, 16),
           new THREE.MeshStandardMaterial({ color: '#3b2514', roughness: 0.65 })
         );
         base.position.y = 0.07;
-        root.add(base);
+        fallbackVisual.add(base);
 
-        // Floating blue crystal above character standee
         const diamond = new THREE.Mesh(
           new THREE.OctahedronGeometry(0.14, 0),
           new THREE.MeshStandardMaterial({
@@ -1376,7 +1380,6 @@ export class SchoolEngine {
         diamond.position.y = 2.08;
         floatingCore.add(diamond);
       } else if (marker.kind === 'objeto') {
-        // Composite Crimson Object Marker (Pedestal + Lantern Octahedron + Orbit Ring)
         const gem = new THREE.Mesh(
           new THREE.OctahedronGeometry(0.24, 0),
           new THREE.MeshStandardMaterial({
@@ -1428,59 +1431,70 @@ export class SchoolEngine {
       });
       const labelSprite = new THREE.Sprite(spriteMat);
       labelSprite.scale.set(1.65, 0.52, 1);
-      labelSprite.position.y = marker.kind === 'personaje' ? 2.48 : 1.85;
+      labelSprite.position.y =
+        marker.kind === 'escalera' ? 1.85 : 2.24;
       root.add(labelSprite);
 
       // Simplified invisible cylinder proxy (DoubleSide so close-range internal rays hit cleanly)
       const hitProxy = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.75, 0.75, 2.4, 8),
+        new THREE.CylinderGeometry(0.78, 0.78, 2.45, 8),
         new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })
       );
-      hitProxy.position.y = 1.2;
+      hitProxy.position.y = 1.22;
       hitProxy.userData = { markerId: marker.id };
       root.add(hitProxy);
       this.hitProxies.push(hitProxy);
 
-      // Optional drop-in GLB support if dpwii_parcial2_marcadores_*.glb exists as binary in /public
-      this.tryAttachOptionalGlb(gltfLoader, marker.glbFile, floatingCore);
-
       const targetFloorGroup = marker.floor === 1 ? this.floor1Group : this.floor2Group;
       targetFloorGroup.add(root);
 
-      this.markersById.set(marker.id, {
+      const visRecord: MarkerVisual = {
         marker,
         root,
         floatingCore,
+        fallbackVisual,
         ringMesh,
         standeeMesh,
         hitProxy,
-      });
+      };
+      this.markersById.set(marker.id, visRecord);
+
+      // Attach official GLB marker ("objeto" or "persona") with native LoopRepeat + Math.sin Y float
+      if (marker.kind === 'objeto' || marker.kind === 'personaje') {
+        const glbKind = marker.kind === 'personaje' ? 'persona' : 'objeto';
+        void this.attachAnimatedGlbMarker(glbKind, visRecord, idx * 0.65);
+      }
     });
 
     this.syncMarkerVisibility();
   }
 
-  private async tryAttachOptionalGlb(
-    loader: GLTFLoader,
-    glbFile: string,
-    targetGroup: THREE.Group
+  private async attachAnimatedGlbMarker(
+    glbKind: 'objeto' | 'persona',
+    visRecord: MarkerVisual,
+    phaseOffset: number
   ) {
     try {
-      const res = await fetch(`/${glbFile}`, { method: 'HEAD' });
-      const contentType = res.headers.get('content-type') || '';
-      if (!res.ok || contentType.includes('text/html')) return;
+      const instance = await createGlbMarkerInstance(glbKind, {
+        floatFrequency: 2.15,
+        floatAmplitude: 0.14,
+        phaseOffset,
+      });
 
-      loader.load(
-        `/${glbFile}`,
-        (gltf) => {
-          gltf.scene.scale.setScalar(0.85);
-          targetGroup.add(gltf.scene);
-        },
-        undefined,
-        () => {}
-      );
+      if (this.disposed) {
+        instance.dispose();
+        return;
+      }
+
+      // Escala calibrada al pasillo escolar (altura ~1.92m, medallón a la altura de la vista ~1.60m)
+      instance.root.scale.setScalar(0.265);
+      instance.root.position.set(0, 0.08, 0);
+
+      visRecord.fallbackVisual.visible = false;
+      visRecord.glbInstance = instance;
+      visRecord.root.add(instance.root);
     } catch {
-      // Procedural composite 3D marker remains active
+      // Mantiene activo el marcador procedural de respaldo si falla la red
     }
   }
 
@@ -1488,7 +1502,12 @@ export class SchoolEngine {
     return this.currentFloor;
   }
 
-  public setFloor(floor: FloorNumber, spawnPos?: [number, number, number], yaw?: number) {
+  public setFloor(
+    floor: FloorNumber,
+    spawnPos?: [number, number, number],
+    yaw?: number,
+    options?: { silentFloorNotice?: boolean }
+  ) {
     this.currentFloor = floor;
     this.floor1Group.visible = floor === 1;
     this.floor2Group.visible = floor === 2;
@@ -1499,6 +1518,13 @@ export class SchoolEngine {
     if (typeof yaw === 'number') {
       this.playerYaw = yaw;
       this.playerPitch = 0;
+    }
+
+    if (this.lastNotifiedFloor !== floor) {
+      this.lastNotifiedFloor = floor;
+      if (!options?.silentFloorNotice) {
+        this.callbacks.onFloorChangeNotice?.(floor);
+      }
     }
 
     this.lastNearbyId = null;
@@ -1583,6 +1609,13 @@ export class SchoolEngine {
       this.moveInput.y = 0;
       this.keyState = {};
       soundEngine.footsteps.reset(false);
+    }
+  }
+
+  public setExternalPause(paused: boolean) {
+    this.externallyPaused = paused;
+    if (!paused) {
+      this.clock.getDelta();
     }
   }
 
@@ -1848,17 +1881,21 @@ export class SchoolEngine {
   }
 
   private updateReactiveWorldProps(delta: number, elapsed: number) {
-    // 1. Animate markers gently & billboard character standees cleanly around Y
+    // 1. Animate GLB markers (AnimationMixer LoopRepeat + Math.sin Y float) and fallback markers
     this.markersById.forEach((vis) => {
       if (vis.marker.floor !== this.currentFloor || !vis.root.visible) return;
 
-      vis.floatingCore.position.y = Math.sin(elapsed * 2.4 + vis.marker.position[0]) * 0.08;
-      vis.floatingCore.rotation.y = elapsed * 1.1;
+      if (vis.glbInstance) {
+        vis.glbInstance.update(delta, elapsed);
+      } else {
+        vis.floatingCore.position.y = Math.sin(elapsed * 2.4 + vis.marker.position[0]) * 0.08;
+        vis.floatingCore.rotation.y = elapsed * 1.1;
 
-      if (vis.standeeMesh) {
-        const dx = this.camera.position.x - vis.root.position.x;
-        const dz = this.camera.position.z - vis.root.position.z;
-        vis.standeeMesh.rotation.y = Math.atan2(dx, dz);
+        if (vis.standeeMesh) {
+          const dx = this.camera.position.x - vis.root.position.x;
+          const dz = this.camera.position.z - vis.root.position.z;
+          vis.standeeMesh.rotation.y = Math.atan2(dx, dz);
+        }
       }
 
       // Highlight active unlocked mission object markers (and final door key object) with emerald ring
@@ -2017,7 +2054,7 @@ export class SchoolEngine {
     const delta = Math.min(this.clock.getDelta(), 0.1);
     const elapsed = this.clock.elapsedTime;
 
-    if (!this.isPaused && !document.hidden) {
+    if (!this.isPaused && !this.externallyPaused && !document.hidden) {
       sensorService.update(delta, elapsed);
       this.updateMovement(delta);
       this.updateZoneAndProximity();
@@ -2114,6 +2151,14 @@ export class SchoolEngine {
     dom.removeEventListener('pointermove', this.handlePointerMove);
     dom.removeEventListener('pointerup', this.handlePointerUp);
     dom.removeEventListener('pointercancel', this.handlePointerUp);
+
+    this.markersById.forEach((vis) => {
+      if (vis.glbInstance) {
+        vis.root.remove(vis.glbInstance.root);
+        vis.glbInstance.dispose();
+        vis.glbInstance = undefined;
+      }
+    });
 
     this.scene.traverse((obj) => {
       if ((obj as THREE.Mesh).isMesh) {

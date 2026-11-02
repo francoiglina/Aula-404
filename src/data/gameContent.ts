@@ -172,7 +172,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
   {
     id: 'personaje_tsuki',
     kind: 'personaje',
-    glbFile: 'dpwii_parcial2_marcadores_personaje.glb',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
     label: 'Tsuki',
     sublabel: 'Estudiante · Entrada Principal',
     floor: 1,
@@ -183,7 +183,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
   {
     id: 'objeto_vestibulo',
     kind: 'objeto',
-    glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_objeto.glb',
     label: 'Tablero de Avisos',
     sublabel: 'Listas de Grupos · 1° Piso',
     floor: 1,
@@ -194,7 +194,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
   {
     id: 'personaje_conserje',
     kind: 'personaje',
-    glbFile: 'dpwii_parcial2_marcadores_personaje.glb',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
     label: 'El Conserje',
     sublabel: 'Personal de Mantenimiento',
     floor: 1,
@@ -205,7 +205,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
   {
     id: 'objeto_armario',
     kind: 'objeto',
-    glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_objeto.glb',
     label: 'Armario de Limpieza',
     sublabel: 'Cuarto de Limpieza · Fondo Izquierdo',
     floor: 1,
@@ -218,7 +218,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
   {
     id: 'personaje_hotaru',
     kind: 'personaje',
-    glbFile: 'dpwii_parcial2_marcadores_personaje.glb',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
     label: 'Hotaru',
     sublabel: 'Estudiante · Zona de Bicicletas',
     floor: 1,
@@ -229,7 +229,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
   {
     id: 'objeto_hotaru',
     kind: 'objeto',
-    glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_objeto.glb',
     label: 'Bicicletas con Hojas',
     sublabel: 'Patio Exterior · Ala Derecha',
     floor: 1,
@@ -242,7 +242,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
   {
     id: 'personaje_kaeru',
     kind: 'personaje',
-    glbFile: 'dpwii_parcial2_marcadores_personaje.glb',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
     label: 'Kaoru',
     sublabel: 'Estudiante · Pasillo frente a 1B',
     floor: 1,
@@ -253,7 +253,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
   {
     id: 'objeto_kaeru',
     kind: 'objeto',
-    glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_objeto.glb',
     label: 'Campanita de Vidrio',
     sublabel: 'Pasillo Principal · Cerca de 1B',
     floor: 1,
@@ -318,7 +318,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
   {
     id: 'personaje_hanako',
     kind: 'personaje',
-    glbFile: 'dpwii_parcial2_marcadores_personaje.glb',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
     label: 'Hanako',
     sublabel: 'Estudiante · Baños del 2° Piso',
     floor: 2,
@@ -329,7 +329,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
   {
     id: 'objeto_hanako',
     kind: 'objeto',
-    glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_objeto.glb',
     label: 'Espejo de los Lavabos',
     sublabel: 'Baños · Ala Derecha (2° Piso)',
     floor: 2,
@@ -342,7 +342,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
   {
     id: 'personaje_profesor',
     kind: 'personaje',
-    glbFile: 'dpwii_parcial2_marcadores_personaje.glb',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
     label: 'El Profesor',
     sublabel: 'Docente · Sala de Profesores',
     floor: 2,
@@ -353,7 +353,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
   {
     id: 'objeto_profesor',
     kind: 'objeto',
-    glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_objeto.glb',
     label: 'Caja del Escritorio',
     sublabel: 'Sala de Profesores · 2° Piso',
     floor: 2,
@@ -366,7 +366,7 @@ export const WORLD_MARKERS: WorldMarker[] = [
   {
     id: 'objeto_puerta_destino',
     kind: 'objeto',
-    glbFile: 'dpwii_parcial2_marcadores_objeto.glb',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_objeto.glb',
     label: 'Seguro del Salón 2C',
     sublabel: 'Frente a la puerta · 2° Piso',
     floor: 2,
