@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, Volume2, VolumeX } from 'lucide-react';
+import { ClueTickerHud } from './components/ClueTickerHud';
 import { DialogueOverlay } from './components/DialogueOverlay';
 import { EndingModal } from './components/EndingModal';
 import { LocationNotice } from './components/LocationNotice';
@@ -9,7 +10,6 @@ import { NewClueBanner } from './components/NewClueBanner';
 import { SchoolMapModal, SchoolModalTab } from './components/SchoolMapModal';
 import { SensorChallengeModal } from './components/SensorChallengeModal';
 import { IntroLoreScreen } from './components/IntroLoreScreen';
-import { TopSensorHud } from './components/TopSensorHud';
 import { TitleScreen } from './components/TitleScreen';
 import {
   getPhaseIndicator,
@@ -17,13 +17,10 @@ import {
   POST_CHALLENGE_DIALOGUES,
   resolveMarkerDialogue,
 } from './data/gameContent';
-import {
-  resolveAllowedFloorNotice,
-  SCHOOL_KANJI_TITLE,
-  SCHOOL_SUBTITLE,
-} from './data/locationZones';
+import { resolveAllowedFloorNotice } from './data/locationZones';
 import { sensorService } from './services/sensorService';
 import { soundEngine } from './services/soundEngine';
+import { ejecutarTransicionEscalera } from './services/stairTransitionController';
 import { SchoolEngine } from './three/SchoolEngine';
 import {
   ClueRecord,
@@ -45,7 +42,7 @@ export default function App() {
   const [phase, setPhase] = useState<GamePhase>('ESTADO_0');
   const [finalSubstate, setFinalSubstate] = useState<FinalSubstate>('pendiente');
   const [currentFloor, setCurrentFloor] = useState<FloorNumber>(1);
-  const [zoneName, setZoneName] = useState('Entrada Genkan (1° Piso)');
+  const [, setZoneName] = useState('Entrada Genkan (1° Piso)');
   const [nearbyMarker, setNearbyMarker] = useState<WorldMarker | null>(null);
   const [spokenFlags, setSpokenFlags] = useState<Record<string, boolean>>({});
   const [unlockedObjects, setUnlockedObjects] = useState<Record<string, boolean>>({});
@@ -57,13 +54,11 @@ export default function App() {
   const [mapModalTab, setMapModalTab] = useState<SchoolModalTab | null>(null);
   const [showEndingModal, setShowEndingModal] = useState(false);
 
-  // Staircase fade-to-black transition state
-  const [stairTransitionText, setStairTransitionText] = useState<string | null>(null);
-  const [stairFadeOpaque, setStairFadeOpaque] = useState(false);
+  // Estado de transición cinemática whip-pan en escaleras
+  const [isStairTransitioning, setIsStairTransitioning] = useState(false);
 
   // Controls & Sensors UI state
   const [isMuted, setIsMuted] = useState(false);
-  const [cameraAllowed] = useState(false);
   const [playerCoords, setPlayerCoords] = useState<{
     x: number;
     z: number;
@@ -119,7 +114,7 @@ export default function App() {
         activeChallenge ||
         mapModalTab ||
         showEndingModal ||
-        stairTransitionText
+        isStairTransitioning
     );
     engineRef.current?.setMovementLocked(isBusyOverlayRef.current);
     engineRef.current?.setExternalPause(mapModalTab === 'markers');
@@ -129,7 +124,7 @@ export default function App() {
     activeChallenge,
     mapModalTab,
     showEndingModal,
-    stairTransitionText,
+    isStairTransitioning,
   ]);
 
   const showToast = useCallback((msg: string) => {
@@ -196,29 +191,22 @@ export default function App() {
       const nextFloor = marker.targetFloor;
       const spawn = marker.spawnAfterStairs;
       const yaw = marker.spawnYaw ?? 0;
+      const direccion = nextFloor === 2 ? 'subir' : 'bajar';
 
+      setIsStairTransitioning(true);
       soundEngine.playStairsTransition();
       soundEngine.fadeOutBgm(0.35, { targetVolume: 0.14 });
-      setStairTransitionText(
-        nextFloor === 2 ? 'Subiendo al segundo piso...' : 'Bajando al primer piso...'
-      );
-      setStairFadeOpaque(true);
 
-      window.setTimeout(() => {
+      void ejecutarTransicionEscalera(direccion, () => {
+        // Cambio de piso y reposicionamiento de cámara 3D ejecutado con pantalla 100% en negro
         engineRef.current?.setFloor(nextFloor, spawn, yaw, { silentFloorNotice: true });
         setCurrentFloor(nextFloor);
         setPlayerCoords({ x: spawn[0], z: spawn[2], yaw, floor: nextFloor });
-      }, 380);
-
-      window.setTimeout(() => {
-        setStairFadeOpaque(false);
+      }).finally(() => {
+        setIsStairTransitioning(false);
         soundEngine.fadeInBgm(0.7, 0.32);
         showLocationNotice(nextFloor);
-      }, 820);
-
-      window.setTimeout(() => {
-        setStairTransitionText(null);
-      }, 1150);
+      });
     },
     [showLocationNotice]
   );
@@ -498,7 +486,6 @@ export default function App() {
     showToast('Historia reiniciada · Primer día de clases');
   };
 
-  const unlockedCluesCount = clues.filter((c) => c.unlocked).length;
   const activePhaseIndicator = getPhaseIndicator(phase, unlockedObjects, finalSubstate);
 
   const isSceneHudMounted = entryStage === 'black_hold' || entryStage === 'ready';
@@ -513,42 +500,54 @@ export default function App() {
         {/* Dedicated Isolated WebGL Canvas Container */}
         <div ref={canvasContainerRef} className="fixed inset-0 z-0 h-full w-full" />
 
-        {/* Top Navigation & Enigmatic Phase HUD */}
-        {isSceneHudMounted && (
-          <TopSensorHud
-            floor={currentFloor}
-            zoneName={zoneName}
-            phaseIndicator={activePhaseIndicator}
-            unlockedCluesCount={unlockedCluesCount}
-            isMuted={isMuted}
-            onOpenMap={() => setMapModalTab('map')}
-            onOpenClues={() => setMapModalTab('clues')}
-            onOpenMarkers={() => setMapModalTab('markers')}
-            onToggleMute={() => {
-              const next = !isMuted;
-              setIsMuted(next);
-              soundEngine.setMuted(next);
-              if (!next) {
-                soundEngine.playConfirm();
-              }
-            }}
-          />
-        )}
-
-        {/* Dynamic Real-Time 2D Minimap (Top-Right Non-Obstructive Overlay) */}
+        {/* Botón discreto de silencio en esquina superior izquierda (misma estética Title Screen) */}
         {isSceneHudMounted &&
           !activeDialogue &&
           !activeChallenge &&
           !mapModalTab &&
           !showEndingModal && (
-            <MinimapHud
-              engineRef={engineRef}
-              floor={currentFloor}
-              phase={phase}
-              unlockedObjects={unlockedObjects}
-              finalSubstate={finalSubstate}
-              onOpenFullMap={() => setMapModalTab('map')}
-            />
+            <div className="pointer-events-auto fixed top-3.5 left-3.5 sm:top-4 sm:left-5 z-20">
+              <button
+                type="button"
+                data-no-confirm-sfx="true"
+                onClick={() => {
+                  const nextMuted = !isMuted;
+                  setIsMuted(nextMuted);
+                  soundEngine.setMuted(nextMuted);
+                  if (!nextMuted) {
+                    soundEngine.playConfirm();
+                  }
+                }}
+                aria-label={isMuted ? 'Activar audio' : 'Silenciar audio'}
+                title={isMuted ? 'Activar audio' : 'Silenciar audio'}
+                className="title-audio-toggle"
+              >
+                {isMuted ? (
+                  <VolumeX className="h-4 w-4 stroke-[1.75]" />
+                ) : (
+                  <Volume2 className="h-4 w-4 stroke-[1.75]" />
+                )}
+              </button>
+            </div>
+          )}
+
+        {/* Bloque superior derecho unificado: Minimapa flotante + Pista desplazable sin recuadro */}
+        {isSceneHudMounted &&
+          !activeDialogue &&
+          !activeChallenge &&
+          !mapModalTab &&
+          !showEndingModal && (
+            <div className="pointer-events-auto fixed top-3 right-3 sm:top-4 sm:right-5 z-20 w-[176px] sm:w-[228px] flex flex-col gap-1">
+              <MinimapHud
+                engineRef={engineRef}
+                floor={currentFloor}
+                phase={phase}
+                unlockedObjects={unlockedObjects}
+                finalSubstate={finalSubstate}
+                onOpenFullMap={() => setMapModalTab('map')}
+              />
+              <ClueTickerHud clueText={activePhaseIndicator.whisper} />
+            </div>
           )}
 
         {/* Minimalist J-Horror 3-Level Floor Notice (1F & 2F Only, Frameless) */}
@@ -559,45 +558,34 @@ export default function App() {
           !activeChallenge &&
           !mapModalTab &&
           !showEndingModal &&
-          !stairFadeOpaque && (
+          !isStairTransitioning && (
             <LocationNotice
               key={locationNotice.id}
               floorTitle={locationNotice.floorTitle}
             />
           )}
 
-        {/* Minimalist J-Horror "NUEVA PISTA" Center Overlay */}
+        {/* Notificación etérea "NUEVA PISTA" */}
         {clueBanner && isInitialized && (
           <NewClueBanner key={clueBanner.id} clueText={clueBanner.text} />
         )}
 
-        {/* Subtle Toast Notification */}
+        {/* Notificación discreta estilo nocturno */}
         {toastMessage && isInitialized && (
-          <div className="pointer-events-none fixed top-16 left-1/2 -translate-x-1/2 z-30 px-4 w-full max-w-md flex justify-center">
-            <div className="rounded-xl border border-amber-500/40 bg-stone-950/94 px-3.5 py-2 text-xs font-medium text-stone-100 shadow-lg flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0" />
+          <div className="pointer-events-none fixed top-6 left-1/2 -translate-x-1/2 z-30 px-4 w-full max-w-md flex justify-center">
+            <div className="hud-text-contrast rounded-lg border border-[#7dd3fc]/45 bg-[#080c16]/92 px-4 py-2 text-xs font-medium text-white shadow-[0_8px_28px_rgba(0,0,0,0.88)] flex items-center gap-2 backdrop-blur-md">
+              <CheckCircle2 className="h-3.5 w-3.5 text-[#7dd3fc] shrink-0" />
               <span className="truncate">{toastMessage}</span>
             </div>
           </div>
         )}
 
-        {/* Mobile Virtual Analog Stick (Left) & Single Interact Button (Right) */}
+        {/* Controles minimalistas inferiores: Joystick izquierdo y Botón de Acción derecho */}
         {isSceneHudMounted && !activeDialogue && !activeChallenge && !showEndingModal && (
           <MobileControlsOverlay
             nearbyMarker={nearbyMarker}
-            phaseIndicator={activePhaseIndicator}
-            cameraAllowed={cameraAllowed}
             onMoveInput={(x, y) => engineRef.current?.setMoveInput(x, y)}
             onInteract={handleOverlayInteract}
-            onResetCamera={() => {
-              engineRef.current?.resetCameraView();
-              showToast('Vista táctil centrada horizontalmente');
-            }}
-            onCapturePhoto={handleCapturePhoto}
-            onSwitchCamera={async () => {
-              const mode = await sensorService.toggleCameraFacing();
-              showToast(mode === 'user' ? 'Cámara frontal activa' : 'Cámara trasera activa');
-            }}
           />
         )}
       </div>
@@ -650,22 +638,6 @@ export default function App() {
           onCaptureMemento={handleCapturePhoto}
           onRestart={handleRestartStory}
         />
-      )}
-
-      {/* Staircase Fade-to-Black Transition Screen */}
-      {stairTransitionText && (
-        <div
-          className={`pointer-events-auto fixed inset-0 z-50 flex flex-col items-center justify-center bg-black transition-opacity duration-300 ${
-            stairFadeOpaque ? 'opacity-100' : 'opacity-0'
-          }`}
-        >
-          <p className="font-display text-2xl font-bold tracking-tight text-stone-100">
-            {stairTransitionText}
-          </p>
-          <p className="mt-1.5 text-xs font-medium text-amber-400">
-            {SCHOOL_KANJI_TITLE} · {SCHOOL_SUBTITLE}
-          </p>
-        </div>
       )}
 
       {/* Secuencia Narrativa Intermedia (#intro-lore-screen) antes de revelar la escena 3D */}

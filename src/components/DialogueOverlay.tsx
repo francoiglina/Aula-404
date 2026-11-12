@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { ArrowRight } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   preloadCharacterPortraits,
   resolveCharacterPortrait,
 } from '../data/characterPortraits';
 import { soundEngine } from '../services/soundEngine';
 import { DialoguePayload } from '../types';
+import { MAX_CHARS_PER_PAGE, paginarDialogo } from '../utils/paginarDialogo';
 
 interface DialogueOverlayProps {
   dialogue: DialoguePayload;
@@ -17,7 +17,7 @@ export const DialogueOverlay: React.FC<DialogueOverlayProps> = ({
   dialogue,
   onFinishDialogue,
 }) => {
-  const [lineIndex, setLineIndex] = useState(0);
+  const [pageIndex, setPageIndex] = useState(0);
   const [charCount, setCharCount] = useState(0);
   const [imgFailed, setImgFailed] = useState(false);
 
@@ -26,62 +26,89 @@ export const DialogueOverlay: React.FC<DialogueOverlayProps> = ({
     dialogue.portraitUrl
   );
 
-  const currentFullLine = dialogue.lines[lineIndex] || '';
-  const isTyping = charCount < currentFullLine.length;
-  const isLastLine = lineIndex >= dialogue.lines.length - 1;
+  // Paginación automática sintáctica en bloques de máximo 180 caracteres
+  const paginatedPages = useMemo(
+    () =>
+      dialogue.lines.flatMap((line) => paginarDialogo(line, MAX_CHARS_PER_PAGE)),
+    [dialogue]
+  );
+
+  const currentFullPage = paginatedPages[pageIndex] || '';
+  const isTyping = charCount < currentFullPage.length;
+  const isLastPage = pageIndex >= Math.max(0, paginatedPages.length - 1);
 
   useEffect(() => {
     preloadCharacterPortraits();
   }, []);
 
   useEffect(() => {
-    setLineIndex(0);
+    setPageIndex(0);
     setCharCount(0);
     setImgFailed(false);
   }, [dialogue]);
 
   useEffect(() => {
-    if (charCount >= currentFullLine.length) return;
+    if (charCount >= currentFullPage.length) return;
     const timer = window.setTimeout(() => {
       setCharCount((prev) => {
         const next = prev + 2;
         if (next % 6 === 0) {
           soundEngine.playTextTick();
         }
-        return Math.min(currentFullLine.length, next);
+        return Math.min(currentFullPage.length, next);
       });
     }, 22);
     return () => clearTimeout(timer);
-  }, [charCount, currentFullLine]);
+  }, [charCount, currentFullPage]);
 
-  const handleAdvance = () => {
+  const handleAdvance = useCallback(() => {
+    // 1. Si el typewriter sigue escribiendo el bloque actual, completarlo de inmediato
     if (isTyping) {
       soundEngine.playConfirm();
-      setCharCount(currentFullLine.length);
+      setCharCount(currentFullPage.length);
       return;
     }
-    if (!isLastLine) {
+
+    // 2. Si hay más páginas en el mismo diálogo, limpiar y reproducir la siguiente página
+    if (!isLastPage) {
       soundEngine.playConfirm();
-      setLineIndex((prev) => prev + 1);
+      setPageIndex((prev) => prev + 1);
       setCharCount(0);
-    } else {
-      if (!dialogue.sensorCompletion) {
-        soundEngine.playConfirm();
-      }
-      onFinishDialogue(dialogue);
+      return;
     }
-  };
+
+    // 3. Cerrar únicamente al avanzar tras la última página
+    if (!dialogue.sensorCompletion) {
+      soundEngine.playConfirm();
+    }
+    onFinishDialogue(dialogue);
+  }, [currentFullPage.length, dialogue, isLastPage, isTyping, onFinishDialogue]);
+
+  // Integrar Enter y Espacio para completar/paginar/cerrar el diálogo
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Enter' || e.code === 'Space') {
+        e.preventDefault();
+        e.stopPropagation();
+        handleAdvance();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+  }, [handleAdvance]);
 
   return (
-    <div className="font-sans pointer-events-auto fixed inset-0 z-30 flex items-end justify-center bg-black/45 px-3 pb-4 pt-12 sm:px-6 sm:pb-7">
-      <div className="relative w-full max-w-3xl">
-        {/* Retrato del personaje posicionado DETRÁS (z-10) emergiendo sobre la solapa izquierda sin distorsión */}
+    <div
+      className="font-sans pointer-events-auto fixed inset-0 z-30 flex items-end justify-center bg-black/45 px-3 pb-4 pt-12 sm:px-6 sm:pb-7"
+      onClick={handleAdvance}
+    >
+      <div className="dialogue-folder-shell relative">
+        {/* Retrato del personaje posicionado DETRÁS (z-10) emergiendo por la izquierda */}
         {portraitSrc && !imgFailed && (
           <div
             key={portraitSrc}
-            className="dialogue-portrait-stage animate-portrait-emerge pointer-events-none absolute left-1.5 sm:left-5 bottom-[calc(100%-4.25rem)] sm:bottom-[calc(100%-5rem)] z-10 w-[clamp(10rem,44vw,14rem)] sm:w-[clamp(13rem,28vw,16.5rem)] h-[clamp(14.5rem,44vh,19.5rem)] sm:h-[clamp(18.5rem,50vh,23.5rem)] flex items-end justify-center overflow-visible"
+            className="dialogue-portrait-stage animate-portrait-emerge pointer-events-none absolute left-1.5 sm:left-5 bottom-[calc(100%-3.5rem)] sm:bottom-[calc(100%-4.25rem)] z-10 w-[clamp(10rem,44vw,14rem)] sm:w-[clamp(13rem,28vw,16.5rem)] h-[clamp(14.5rem,44vh,19.5rem)] sm:h-[clamp(18.5rem,50vh,23.5rem)] flex items-end justify-center overflow-visible"
           >
-            {/* Resplandor radial uniforme sin blur costoso para contrastar siluetas oscuras y transparencias en móvil */}
             <div
               aria-hidden="true"
               className="dialogue-portrait-backdrop absolute inset-x-1 top-2 bottom-3 rounded-full"
@@ -97,73 +124,95 @@ export const DialogueOverlay: React.FC<DialogueOverlayProps> = ({
           </div>
         )}
 
-        {/* Contenedor Text Box estilo Carpeta / Pestaña (z-20 por delante del retrato) */}
-        <div className="animate-folder-box-enter relative z-20 drop-shadow-[0_18px_38px_rgba(0,0,0,0.62)]">
-          {/* Solapa superior izquierda elevada con el nombre del personaje */}
-          <div className="relative z-10 -mb-px flex items-end">
-            <div className="h-9 sm:h-11 min-w-[164px] sm:min-w-[228px] max-w-[74%] rounded-tl-[24px] sm:rounded-tl-[28px] bg-[#48484b] pl-5 pr-3 sm:pl-7 sm:pr-4 flex items-center">
-              <h2 className="text-sm sm:text-base font-bold tracking-tight text-stone-100 whitespace-nowrap truncate">
+        {/* Contenedor Text Box estilo Carpeta Nocturna (basado en imagen de referencia) */}
+        <div className="animate-folder-box-enter relative z-20 drop-shadow-[0_18px_38px_rgba(0,0,0,0.82)]">
+          {/* Fila superior: Pestaña integrada + curva suave descendente + borde superior derecho */}
+          <div className="flex items-stretch h-9 sm:h-11">
+            {/* Pestaña superior izquierda con nombre del hablante */}
+            <div className="dialogue-folder-tab min-w-[164px] sm:min-w-[228px] max-w-[70%] pl-5 pr-3 sm:pl-7 sm:pr-4 flex items-center">
+              <h2 className="hud-text-contrast text-sm sm:text-base font-semibold tracking-wide text-[#bae6fd] whitespace-nowrap truncate">
                 {dialogue.speakerName}
               </h2>
             </div>
 
-            {/* Curva en S continua que une la solapa con el cuerpo rectangular */}
+            {/* Curva S suave unida sin costuras al borde superior derecho */}
             <svg
               viewBox="0 0 52 44"
               aria-hidden="true"
-              className="h-9 sm:h-11 w-11 sm:w-[52px] -ml-px shrink-0 block text-[#48484b]"
+              className="dialogue-folder-curve w-11 sm:w-[52px] h-full shrink-0 block"
               preserveAspectRatio="none"
             >
-              <path d="M 0,0 C 20,0 26,44 52,44 L 0,44 Z" fill="currentColor" />
+              <path
+                d="M 0,0.5 C 20,0.5 26,43.5 52,43.5 L 52,44 L 0,44 Z"
+                fill="rgba(8, 12, 22, 0.92)"
+              />
+              <path
+                d="M 0,0.5 C 20,0.5 26,43.5 52,43.5"
+                fill="none"
+                stroke="rgba(125, 211, 252, 0.45)"
+                strokeWidth="1.2"
+                vectorEffect="non-scaling-stroke"
+              />
             </svg>
+
+            {/* Extensión derecha del borde superior del cuerpo principal */}
+            <div
+              aria-hidden="true"
+              className="flex-1 border-b border-[rgba(125,211,252,0.45)]"
+            />
           </div>
 
-          {/* Cuerpo rectangular gris oscuro con borde interior muy fino */}
-          <div className="rounded-tr-[7px] rounded-b-[7px] bg-[#48484b] p-[8px] sm:p-[10px]">
+          {/* Cuerpo rectangular con tamaño estricto constante + doble filete interior */}
+          <div className="dialogue-folder-body p-[8px] sm:p-[10px]">
             <div
-              onClick={handleAdvance}
-              className="relative border border-white/85 px-5 py-4 sm:px-7 sm:py-5 min-h-[136px] sm:min-h-[154px] flex flex-col justify-between cursor-pointer"
+              role="button"
+              tabIndex={0}
+              data-no-confirm-sfx="true"
+              aria-label={
+                isTyping
+                  ? 'Completar texto del diálogo'
+                  : isLastPage
+                  ? 'Cerrar diálogo'
+                  : 'Siguiente página de diálogo'
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                handleAdvance();
+              }}
+              className="dialogue-textbox-fixed dialogue-textbox-inner-frame"
             >
-              {/* Acento interior fino esquina superior derecha (fiel a la referencia) */}
+              {/* Doble filete luminoso en esquina superior derecha e inferior izquierda */}
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute top-[5px] right-[5px] h-px w-12 bg-gradient-to-l from-white/75 to-transparent"
+                className="pointer-events-none absolute top-[4px] right-[4px] h-[1.5px] w-14 bg-gradient-to-l from-[#e0f2fe] via-[#bae6fd]/75 to-transparent shadow-[0_0_8px_rgba(125,211,252,0.55)]"
               />
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute top-[5px] right-[5px] w-px h-9 bg-gradient-to-b from-white/75 to-transparent"
-              />
-
-              {/* Acento interior fino esquina inferior izquierda (fiel a la referencia) */}
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute bottom-[5px] left-[5px] h-px w-12 bg-gradient-to-r from-white/75 to-transparent"
+                className="pointer-events-none absolute top-[4px] right-[4px] w-[1.5px] h-10 bg-gradient-to-b from-[#e0f2fe] via-[#bae6fd]/75 to-transparent shadow-[0_0_8px_rgba(125,211,252,0.55)]"
               />
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute bottom-[5px] left-[5px] w-px h-9 bg-gradient-to-t from-white/75 to-transparent"
+                className="pointer-events-none absolute bottom-[4px] left-[4px] h-[1.5px] w-14 bg-gradient-to-r from-[#e0f2fe] via-[#bae6fd]/75 to-transparent shadow-[0_0_8px_rgba(125,211,252,0.55)]"
+              />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute bottom-[4px] left-[4px] w-[1.5px] h-10 bg-gradient-to-t from-[#e0f2fe] via-[#bae6fd]/75 to-transparent shadow-[0_0_8px_rgba(125,211,252,0.55)]"
               />
 
-              {/* Texto del diálogo */}
-              <p className="text-sm sm:text-base font-normal leading-relaxed text-stone-100 pr-1">
-                {currentFullLine.slice(0, charCount)}
+              {/* Texto paginado (<= 180 caracteres) */}
+              <p className="dialogue-textbox-copy">
+                {currentFullPage.slice(0, charCount)}
               </p>
 
-              {/* Botón único de Siguiente / avanzar */}
-              <div className="mt-3 flex justify-end">
-                <button
-                  type="button"
-                  data-no-confirm-sfx="true"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleAdvance();
-                  }}
-                  className="min-h-[40px] rounded-[5px] border border-white/80 bg-white/10 px-4 py-1.5 text-xs sm:text-sm font-semibold text-white hover:bg-white/20 active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                >
-                  <span>Siguiente</span>
-                  <ArrowRight className="h-3.5 w-3.5 shrink-0" />
-                </button>
-              </div>
+              {/* Indicador visual en esquina inferior derecha: ▾ animada o ▪ final */}
+              <span
+                aria-hidden="true"
+                className={`dialogue-advance-indicator ${
+                  isLastPage ? 'is-end' : 'is-next'
+                } ${isTyping ? 'is-typing' : 'is-ready'}`}
+              >
+                {isLastPage ? '▪' : '▾'}
+              </span>
             </div>
           </div>
         </div>

@@ -5,8 +5,8 @@ interface NewClueBannerProps {
 }
 
 /**
- * Notificación central minimalista en blanco y negro (estilo J-Horror) con tipografía Inter.
- * Se despliega en sincronía con el audio de éxito al cerrar la interacción final de un sensor.
+ * Notificación central etérea minimalista (paleta nocturna cian/blanco del Title Screen).
+ * Sin recuadros pesados; se despliega con líneas horizontales luminosas y bruma traslúcida.
  */
 export const NewClueBanner: React.FC<NewClueBannerProps> = ({ clueText }) => {
   return (
@@ -15,25 +15,25 @@ export const NewClueBanner: React.FC<NewClueBannerProps> = ({ clueText }) => {
       aria-live="polite"
       className="font-sans pointer-events-none fixed inset-0 z-35 flex items-center justify-center px-4 sm:px-8 -translate-y-4 sm:-translate-y-6 select-none"
     >
-      <div className="jhorror-clue-card relative w-full max-w-xl px-6 py-4 sm:px-9 sm:py-5 text-center">
-        {/* Línea superior minimalista */}
+      <div className="jhorror-clue-ribbon relative w-full max-w-xl px-6 py-4 sm:px-10 sm:py-5 text-center">
+        {/* Línea superior expansiva cian pálido */}
         <div
           aria-hidden="true"
-          className="jhorror-clue-rule mx-auto mb-2.5 h-px w-16 bg-white/75 origin-center"
+          className="jhorror-clue-rule jhorror-clue-rule--top mx-auto mb-3 h-px w-full max-w-[16rem] origin-center"
         />
 
         {/* Mensaje estructurado "NUEVA PISTA: [Texto dinámico]" */}
-        <p className="text-xs sm:text-sm md:text-base leading-relaxed tracking-[0.02em] text-neutral-100">
-          <span className="font-bold uppercase tracking-[0.14em] text-white">
+        <p className="jhorror-clue-copy text-xs sm:text-sm md:text-base leading-relaxed tracking-[0.025em] text-white">
+          <span className="jhorror-clue-prefix font-semibold uppercase tracking-[0.18em] text-[#bae6fd]">
             NUEVA PISTA:
           </span>{' '}
-          <span className="font-normal text-neutral-200">{clueText}</span>
+          <span className="font-normal text-white/95">{clueText}</span>
         </p>
 
-        {/* Línea inferior minimalista */}
+        {/* Línea inferior expansiva cian pálido */}
         <div
           aria-hidden="true"
-          className="jhorror-clue-rule mx-auto mt-2.5 h-px w-16 bg-white/75 origin-center"
+          className="jhorror-clue-rule jhorror-clue-rule--bottom mx-auto mt-3 h-px w-full max-w-[16rem] origin-center"
         />
       </div>
     </div>

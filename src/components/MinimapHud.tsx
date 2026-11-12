@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, Maximize2 } from 'lucide-react';
 import { WORLD_MARKERS } from '../data/gameContent';
+import { MARKER_3D_COLORS } from '../three/markerPalette';
 import { SchoolEngine } from '../three/SchoolEngine';
 import { FinalSubstate, FloorNumber, GamePhase, WorldMarker } from '../types';
 
@@ -401,7 +401,6 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
   onOpenFullMap,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [collapsed, setCollapsed] = useState(false);
   const [displayedFloor, setDisplayedFloor] = useState<FloorNumber>(floor);
 
   // Refs sincronizados para que el bucle requestAnimationFrame nunca lea estado obsoleto
@@ -410,7 +409,6 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
     phase,
     unlockedObjects,
     finalSubstate,
-    collapsed,
   });
 
   useEffect(() => {
@@ -419,10 +417,9 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
       phase,
       unlockedObjects,
       finalSubstate,
-      collapsed,
     };
     setDisplayedFloor(floor);
-  }, [floor, phase, unlockedObjects, finalSubstate, collapsed]);
+  }, [floor, phase, unlockedObjects, finalSubstate]);
 
   useEffect(() => {
     let rafId = 0;
@@ -440,7 +437,7 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
         setDisplayedFloor(liveFloor);
       }
 
-      if (canvas && !curState.collapsed) {
+      if (canvas) {
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         const targetW = Math.round(LOGICAL_WIDTH * dpr);
         const targetH = Math.round(LOGICAL_HEIGHT * dpr);
@@ -457,13 +454,24 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
 
           const viewport = DEFAULT_VIEWPORT;
 
-          // 1. Fondo oscuro limpio con cuadrícula arquitectónica sutil
+          // 1. Lienzo transparente con bruma nocturna profunda (#070a12) para contraste garantizado sobre paredes claras
           ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
-          ctx.fillStyle = '#141211';
+          const bgMist = ctx.createRadialGradient(
+            LOGICAL_WIDTH * 0.5,
+            LOGICAL_HEIGHT * 0.5,
+            16,
+            LOGICAL_WIDTH * 0.5,
+            LOGICAL_HEIGHT * 0.5,
+            LOGICAL_WIDTH * 0.6
+          );
+          bgMist.addColorStop(0, 'rgba(7, 10, 18, 0.82)');
+          bgMist.addColorStop(0.68, 'rgba(13, 24, 41, 0.64)');
+          bgMist.addColorStop(1, 'rgba(7, 10, 18, 0.12)');
+          ctx.fillStyle = bgMist;
           ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
 
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)';
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = 'rgba(186, 230, 253, 0.06)';
+          ctx.lineWidth = 0.8;
           for (let gx = 16; gx < LOGICAL_WIDTH; gx += 16) {
             ctx.beginPath();
             ctx.moveTo(gx, 0);
@@ -477,7 +485,7 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
             ctx.stroke();
           }
 
-          // 2. Salones y recintos del piso activo (1F o 2F)
+          // 2. Salones y recintos del piso activo (1F o 2F) en paleta #070a12 / #0d1829 / #bae6fd
           const is2CDoorUnlocked =
             curState.phase === 'ESTADO_FINAL' &&
             (curState.finalSubstate === 'puerta_desbloqueada' ||
@@ -491,36 +499,35 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
             const isRoomUnlocked = room.isOpenRoom || (room.id === '2C' && is2CDoorUnlocked);
 
             ctx.fillStyle = isRoomUnlocked
-              ? 'rgba(74, 158, 86, 0.36)'
-              : 'rgba(62, 118, 70, 0.20)';
+              ? 'rgba(125, 211, 252, 0.16)'
+              : 'rgba(13, 24, 41, 0.52)';
             ctx.fillRect(r.x, r.y, r.w, r.h);
 
             ctx.strokeStyle = isRoomUnlocked
-              ? 'rgba(134, 239, 172, 0.62)'
-              : 'rgba(217, 119, 6, 0.45)';
-            ctx.lineWidth = 1;
+              ? 'rgba(186, 230, 253, 0.72)'
+              : 'rgba(125, 211, 252, 0.38)';
+            ctx.lineWidth = 0.95;
             ctx.strokeRect(r.x, r.y, r.w, r.h);
 
-            // Etiqueta tipográfica Inter nítida de cada salón/zona
             ctx.fillStyle = isRoomUnlocked
-              ? 'rgba(245, 245, 244, 0.92)'
-              : 'rgba(214, 211, 209, 0.68)';
-            ctx.font = '600 7.5px Inter, -apple-system, sans-serif';
+              ? 'rgba(255, 255, 255, 0.96)'
+              : 'rgba(186, 230, 253, 0.74)';
+            ctx.font = '500 7.5px Inter, -apple-system, sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(room.label, r.x + r.w * 0.5, r.y + r.h * 0.52);
           }
 
-          // 3. Pasillos transitables en U (contorno exterior continuo + relleno interior)
-          ctx.fillStyle = 'rgba(234, 140, 53, 0.78)';
+          // 3. Pasillos transitables en U
+          ctx.fillStyle = 'rgba(186, 230, 253, 0.44)';
           for (let i = 0; i < CORRIDOR_RECTS.length; i++) {
             const c = CORRIDOR_RECTS[i];
             if (c.floor !== 'both' && c.floor !== liveFloor) continue;
             const r = worldRectToCanvas(c.minX, c.minZ, c.maxX, c.maxZ, viewport);
-            ctx.fillRect(r.x - 1, r.y - 1, r.w + 2, r.h + 2);
+            ctx.fillRect(r.x - 0.85, r.y - 0.85, r.w + 1.7, r.h + 1.7);
           }
 
-          ctx.fillStyle = '#292624';
+          ctx.fillStyle = 'rgba(7, 10, 18, 0.88)';
           for (let i = 0; i < CORRIDOR_RECTS.length; i++) {
             const c = CORRIDOR_RECTS[i];
             if (c.floor !== 'both' && c.floor !== liveFloor) continue;
@@ -530,8 +537,8 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
 
           // 4. Islas de casilleros (Getabako) y umbral de entrada en el Piso 1
           if (liveFloor === 1) {
-            ctx.fillStyle = '#44403c';
-            ctx.strokeStyle = 'rgba(234, 140, 53, 0.55)';
+            ctx.fillStyle = 'rgba(13, 24, 41, 0.85)';
+            ctx.strokeStyle = 'rgba(186, 230, 253, 0.52)';
             ctx.lineWidth = 0.8;
             for (let i = 0; i < GENKAN_LOCKER_ISLANDS.length; i++) {
               const isl = GENKAN_LOCKER_ISLANDS[i];
@@ -540,18 +547,17 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
               ctx.strokeRect(r.x, r.y, r.w, r.h);
             }
 
-            // Marca de puerta principal al sur del Genkan
             const entLeft = worldToMinimap(-3.0, 7.55, viewport);
             const entRight = worldToMinimap(3.0, 7.55, viewport);
-            ctx.strokeStyle = '#fbbf24';
-            ctx.lineWidth = 1.6;
+            ctx.strokeStyle = '#bae6fd';
+            ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.moveTo(entLeft.x, entLeft.y);
             ctx.lineTo(entRight.x, entRight.y);
             ctx.stroke();
           }
 
-          // 5. Indicadores de puertas abiertas (verde) y cerradas (rojo) igual que en el plano
+          // 5. Indicadores de puertas abiertas y cerradas
           for (let i = 0; i < SCHOOL_ROOMS.length; i++) {
             const room = SCHOOL_ROOMS[i];
             if (room.floor !== liveFloor) continue;
@@ -559,15 +565,15 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
             const dRight = worldToMinimap(room.doorX + room.doorWidth * 0.5, room.doorZ, viewport);
             const isDoorOpen = room.isOpenRoom || (room.id === '2C' && is2CDoorUnlocked);
 
-            ctx.strokeStyle = isDoorOpen ? '#4ade80' : '#f87171';
-            ctx.lineWidth = 1.8;
+            ctx.strokeStyle = isDoorOpen ? '#bae6fd' : 'rgba(148, 163, 184, 0.52)';
+            ctx.lineWidth = 1.6;
             ctx.beginPath();
             ctx.moveTo(dLeft.x, dLeft.y);
             ctx.lineTo(dRight.x, dRight.y);
             ctx.stroke();
           }
 
-          // 6. Marcadores dinámicos (Escaleras, Personajes, Objetos y Puerta Final)
+          // 6. Marcadores dinámicos sincronizados EXACTAMENTE con los colores de los modelos 3D / GLB
           for (let i = 0; i < ALL_MINIMAP_MARKERS.length; i++) {
             const marker = ALL_MINIMAP_MARKERS[i];
             const vis = resolveMinimapMarkerVisibility(
@@ -584,73 +590,73 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
             ctx.translate(pt.x, pt.y);
 
             if (vis === 'dimmed') {
-              ctx.globalAlpha = 0.34;
+              ctx.globalAlpha = 0.4;
             }
 
             if (marker.kind === 'escalera') {
-              // Ícono cuadrado amarillo de escalera con peldaños internos
+              // Amarillo oro exacto del marcador 3D de escalera (#facc15)
               if (vis === 'target') {
-                ctx.strokeStyle = 'rgba(250, 204, 21, 0.55)';
-                ctx.lineWidth = 1.2;
+                ctx.strokeStyle = MARKER_3D_COLORS.escalera.halo;
+                ctx.lineWidth = 1.25;
                 ctx.strokeRect(-5.5, -5.5, 11, 11);
               }
-              ctx.fillStyle = '#facc15';
-              ctx.strokeStyle = '#0c0a09';
+              ctx.fillStyle = MARKER_3D_COLORS.escalera.fill;
+              ctx.strokeStyle = '#070a12';
               ctx.lineWidth = 1;
               ctx.fillRect(-3.6, -3.6, 7.2, 7.2);
               ctx.strokeRect(-3.6, -3.6, 7.2, 7.2);
 
-              ctx.strokeStyle = '#1c1917';
+              ctx.strokeStyle = '#070a12';
               ctx.lineWidth = 0.9;
               ctx.beginPath();
-              ctx.moveTo(-2.2, 1.8);
-              ctx.lineTo(0, 1.8);
+              ctx.moveTo(-2.1, 1.7);
+              ctx.lineTo(0, 1.7);
               ctx.lineTo(0, 0);
-              ctx.lineTo(2.2, 0);
-              ctx.lineTo(2.2, -1.8);
+              ctx.lineTo(2.1, 0);
+              ctx.lineTo(2.1, -1.7);
               ctx.stroke();
             } else if (marker.kind === 'personaje') {
-              // Ícono circular azul cielo para personajes
+              // Cian eléctrico exacto de dpwii_parcial2_marcadores_persona.glb (#4ad0ff)
               if (vis === 'target') {
                 ctx.beginPath();
-                ctx.arc(0, 0, 5.8, 0, Math.PI * 2);
-                ctx.strokeStyle = 'rgba(56, 189, 248, 0.65)';
+                ctx.arc(0, 0, 5.9, 0, Math.PI * 2);
+                ctx.strokeStyle = MARKER_3D_COLORS.personaje.halo;
                 ctx.lineWidth = 1.25;
                 ctx.stroke();
               }
               ctx.beginPath();
               ctx.arc(0, 0, vis === 'dimmed' ? 2.6 : 3.4, 0, Math.PI * 2);
-              ctx.fillStyle = '#38bdf8';
+              ctx.fillStyle = MARKER_3D_COLORS.personaje.fill;
               ctx.fill();
               ctx.lineWidth = 1;
-              ctx.strokeStyle = '#0c0a09';
+              ctx.strokeStyle = '#070a12';
               ctx.stroke();
             } else if (marker.kind === 'puerta') {
-              // Ícono esmeralda para la puerta desbloqueada del Salón 2C
+              // Verde esmeralda exacto del anillo de puerta desbloqueada en 3D (#10b981)
               ctx.beginPath();
-              ctx.arc(0, 0, 6.2, 0, Math.PI * 2);
-              ctx.strokeStyle = 'rgba(52, 211, 153, 0.65)';
-              ctx.lineWidth = 1.3;
+              ctx.arc(0, 0, 6.4, 0, Math.PI * 2);
+              ctx.strokeStyle = MARKER_3D_COLORS.puerta.halo;
+              ctx.lineWidth = 1.25;
               ctx.stroke();
 
-              ctx.fillStyle = '#10b981';
-              ctx.strokeStyle = '#ecfdf5';
+              ctx.fillStyle = MARKER_3D_COLORS.puerta.fill;
+              ctx.strokeStyle = '#ffffff';
               ctx.lineWidth = 1;
-              ctx.fillRect(-3.2, -3.2, 6.4, 6.4);
-              ctx.strokeRect(-3.2, -3.2, 6.4, 6.4);
+              ctx.fillRect(-3.1, -3.1, 6.2, 6.2);
+              ctx.strokeRect(-3.1, -3.1, 6.2, 6.2);
             } else {
-              // Ícono rombo coral para objetos interactivos habilitados
+              // Carmesí-coral neón exacto de dpwii_parcial2_marcadores_objeto.glb (#ff6588)
               if (vis === 'target') {
                 ctx.beginPath();
                 ctx.arc(0, 0, 6.0, 0, Math.PI * 2);
-                ctx.strokeStyle = 'rgba(251, 113, 133, 0.68)';
+                ctx.strokeStyle = MARKER_3D_COLORS.objeto.halo;
                 ctx.lineWidth = 1.25;
                 ctx.stroke();
               }
               ctx.rotate(Math.PI / 4);
-              const s = vis === 'dimmed' ? 2.1 : 2.9;
-              ctx.fillStyle = '#fb7185';
-              ctx.strokeStyle = '#0c0a09';
+              const s = vis === 'dimmed' ? 2.2 : 2.95;
+              ctx.fillStyle = MARKER_3D_COLORS.objeto.fill;
+              ctx.strokeStyle = '#070a12';
               ctx.lineWidth = 1;
               ctx.fillRect(-s, -s, s * 2, s * 2);
               ctx.strokeRect(-s, -s, s * 2, s * 2);
@@ -659,7 +665,7 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
             ctx.restore();
           }
 
-          // 7. Cursor del jugador en tiempo real (posición X,Z + rotación dinámica por cámara)
+          // 7. Cursor del jugador en tiempo real (blanco puro con contorno oscuro + cono cian pálido)
           const px = engine ? engine.playerPos.x : -1.5;
           const pz = engine ? engine.playerPos.z : 6.0;
           const pyaw = engine ? engine.playerYaw : 0;
@@ -667,16 +673,13 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
 
           ctx.save();
           ctx.translate(playerPt.x, playerPt.y);
-          // En Three.js yaw=0 mira hacia -Z (Norte / arriba en el canvas) y +yaw gira a la izquierda;
-          // en Canvas 2D la rotación positiva es horaria, por lo que el ángulo exacto es -pyaw.
           ctx.rotate(-pyaw);
 
-          // Cono sutil de visión de la cámara (FOV ~68°)
           const fovHalfRad = (34 * Math.PI) / 180;
           const coneRadius = 18;
           const coneGrad = ctx.createRadialGradient(0, 0, 1.5, 0, 0, coneRadius);
-          coneGrad.addColorStop(0, 'rgba(52, 211, 153, 0.38)');
-          coneGrad.addColorStop(1, 'rgba(52, 211, 153, 0)');
+          coneGrad.addColorStop(0, 'rgba(186, 230, 253, 0.45)');
+          coneGrad.addColorStop(1, 'rgba(125, 211, 252, 0)');
 
           ctx.beginPath();
           ctx.moveTo(0, 0);
@@ -685,17 +688,16 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
           ctx.fillStyle = coneGrad;
           ctx.fill();
 
-          // Flecha direccional nítida del jugador
           ctx.beginPath();
           ctx.moveTo(0, -5.6);
-          ctx.lineTo(4.1, 4.4);
-          ctx.lineTo(0, 2.2);
-          ctx.lineTo(-4.1, 4.4);
+          ctx.lineTo(4.0, 4.3);
+          ctx.lineTo(0, 2.1);
+          ctx.lineTo(-4.0, 4.3);
           ctx.closePath();
-          ctx.fillStyle = '#34d399';
+          ctx.fillStyle = '#ffffff';
           ctx.fill();
-          ctx.lineWidth = 1.25;
-          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.15;
+          ctx.strokeStyle = '#070a12';
           ctx.stroke();
 
           ctx.restore();
@@ -711,75 +713,24 @@ export const MinimapHud: React.FC<MinimapHudProps> = ({
   }, [engineRef]);
 
   return (
-    <aside
-      aria-label="Minimapa en tiempo real"
-      className="font-sans pointer-events-auto fixed top-15 right-3 sm:right-5 z-20 w-[184px] sm:w-[236px] rounded-xl minimap-panel p-2 transition-all select-none"
-    >
-      {/* Cabecera compacta de piso actual y controles discretos */}
-      <div className="flex items-center justify-between gap-1.5 px-0.5">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 shrink-0" />
-          <span className="text-[11px] font-semibold tracking-tight text-stone-100 truncate">
-            {displayedFloor === 1 ? '1° Piso · Planta Baja' : '2° Piso · Nivel Superior'}
-          </span>
+    <div aria-label="Minimapa en tiempo real" className="w-full select-none">
+      <button
+        type="button"
+        onClick={onOpenFullMap}
+        title="Abrir plano detallado"
+        aria-label={`Minimapa ${displayedFloor === 1 ? 'Primer Piso' : 'Segundo Piso'}. Toca para ver el plano completo`}
+        className="group relative block w-full bg-transparent border-0 p-0 cursor-pointer focus:outline-none"
+      >
+        <div className="minimap-floating-mask transition-opacity duration-200 group-hover:opacity-100 opacity-95">
+          <canvas
+            ref={canvasRef}
+            className="block w-full h-auto aspect-[224/132]"
+          />
         </div>
-
-        <div className="flex items-center gap-1 shrink-0">
-          {onOpenFullMap && (
-            <button
-              type="button"
-              onClick={onOpenFullMap}
-              title="Abrir plano detallado"
-              aria-label="Abrir plano detallado"
-              className="h-6 w-6 rounded-md border border-stone-700/80 bg-stone-900/90 text-stone-300 hover:bg-stone-800 hover:text-stone-100 flex items-center justify-center transition-colors cursor-pointer"
-            >
-              <Maximize2 className="h-3 w-3" />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setCollapsed((prev) => !prev)}
-            title={collapsed ? 'Mostrar minimapa' : 'Minimizar minimapa'}
-            aria-label={collapsed ? 'Mostrar minimapa' : 'Minimizar minimapa'}
-            className="h-6 w-6 rounded-md border border-stone-700/80 bg-stone-900/90 text-stone-300 hover:bg-stone-800 hover:text-stone-100 flex items-center justify-center transition-colors cursor-pointer"
-          >
-            {collapsed ? (
-              <ChevronDown className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronUp className="h-3.5 w-3.5" />
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Lienzo 2D en tiempo real + simbología compacta */}
-      {!collapsed && (
-        <div className="mt-1.5">
-          <div className="minimap-canvas-frame overflow-hidden rounded-lg">
-            <canvas
-              ref={canvasRef}
-              data-ui-confirm="true"
-              onClick={onOpenFullMap}
-              className="block w-full h-auto aspect-[224/132] cursor-pointer"
-            />
-          </div>
-
-          <div className="mt-1.5 flex items-center justify-between px-0.5 text-[9.5px] font-medium text-stone-400">
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-full bg-sky-400" />
-              Persona
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rotate-45 bg-rose-400" />
-              Objeto
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-2 w-2 bg-yellow-400" />
-              Escalera
-            </span>
-          </div>
-        </div>
-      )}
-    </aside>
+        <span className="hud-text-contrast pointer-events-none mt-0.5 block text-right pr-1.5 text-[10px] font-medium tracking-[0.2em] uppercase text-[#bae6fd]">
+          {displayedFloor === 1 ? '— 1F —' : '— 2F —'}
+        </span>
+      </button>
+    </div>
   );
 };

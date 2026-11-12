@@ -22,11 +22,13 @@ export const LocationNotice: React.FC<LocationNoticeProps> = ({
       aria-live="polite"
       className="location-notice-overlay font-sans select-none"
     >
+      <div aria-hidden="true" className="location-notice-line location-notice-line--top" />
       <span lang="ja" className="location-notice-kanji">
         {kanjiTitle}
       </span>
       <span className="location-notice-subtitle">{schoolSubtitle}</span>
       <span className="location-notice-floor">{floorTitle}</span>
+      <div aria-hidden="true" className="location-notice-line location-notice-line--bottom" />
     </div>
   );
 };

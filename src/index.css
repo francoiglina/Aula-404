@@ -118,47 +118,59 @@
   }
 }
 
-/* Minimap HUD: crisp architectural frame over WebGL without backdrop-filter */
-.minimap-panel {
-  background-color: rgba(12, 10, 9, 0.9);
-  border: 1px solid rgba(87, 83, 78, 0.78);
-  box-shadow:
-    0 12px 28px -8px rgba(0, 0, 0, 0.72),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+/* Sombra doble global para garantizar legibilidad de textos HUD sobre zonas claras 3D */
+.hud-text-contrast {
+  text-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.95),
+    0 0 10px rgba(0, 0, 0, 0.85);
 }
 
-.minimap-canvas-frame {
-  background-color: rgba(20, 18, 17, 0.95);
-  border: 1px solid rgba(68, 64, 60, 0.85);
+/* Minimap HUD flotante sin recuadro con máscara suave y halo oscuro exterior */
+.minimap-floating-mask {
+  mask-image: radial-gradient(
+    ellipse 86% 82% at 50% 50%,
+    #000000 60%,
+    rgba(0, 0, 0, 0.62) 84%,
+    transparent 100%
+  );
+  -webkit-mask-image: radial-gradient(
+    ellipse 86% 82% at 50% 50%,
+    #000000 60%,
+    rgba(0, 0, 0, 0.62) 84%,
+    transparent 100%
+  );
+  filter:
+    drop-shadow(0 2px 6px rgba(0, 0, 0, 0.9))
+    drop-shadow(0 8px 20px rgba(7, 10, 18, 0.78));
 }
 
-/* Minimalist J-Horror Black & White "NUEVA PISTA" Center Overlay Animation */
+/* Notificación etérea central "NUEVA PISTA" (Paleta nocturna del Title Screen) */
 @keyframes jhorrorClueReveal {
   0% {
     opacity: 0;
-    transform: translate3d(0, 8px, 0) scale(0.94);
+    transform: translate3d(0, 8px, 0) scale(0.95);
   }
-  10% {
+  11% {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
   }
   76% {
     opacity: 1;
-    transform: translate3d(0, -1px, 0) scale(1.024);
+    transform: translate3d(0, -1px, 0) scale(1.018);
   }
   100% {
     opacity: 0;
-    transform: translate3d(0, -5px, 0) scale(1.045);
+    transform: translate3d(0, -5px, 0) scale(1.035);
   }
 }
 
 @keyframes jhorrorRuleExpand {
   0% {
     opacity: 0;
-    transform: scaleX(0.18);
+    transform: scaleX(0.08);
   }
   16% {
-    opacity: 0.85;
+    opacity: 0.92;
     transform: scaleX(1);
   }
   76% {
@@ -167,26 +179,51 @@
   }
   100% {
     opacity: 0;
-    transform: scaleX(1.04);
+    transform: scaleX(1.12);
   }
 }
 
-.jhorror-clue-card {
-  background-color: rgba(6, 6, 8, 0.94);
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  box-shadow:
-    0 24px 60px rgba(0, 0, 0, 0.88),
-    inset 0 0 0 3px rgba(6, 6, 8, 1),
-    inset 0 0 0 4px rgba(255, 255, 255, 0.22);
+.jhorror-clue-ribbon {
+  background: radial-gradient(
+    ellipse 74% 80% at 50% 50%,
+    rgba(7, 10, 18, 0.84) 0%,
+    rgba(13, 24, 41, 0.58) 54%,
+    rgba(0, 0, 0, 0) 100%
+  );
   animation: jhorrorClueReveal 3600ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .jhorror-clue-rule {
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(186, 230, 253, 0.88) 32%,
+    rgba(255, 255, 255, 0.98) 50%,
+    rgba(186, 230, 253, 0.88) 68%,
+    transparent 100%
+  );
+  box-shadow:
+    0 0 12px rgba(125, 211, 252, 0.55),
+    0 1px 6px rgba(0, 0, 0, 0.9);
   animation: jhorrorRuleExpand 3600ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
+.jhorror-clue-prefix {
+  text-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.96),
+    0 0 12px rgba(0, 0, 0, 0.88),
+    0 0 14px rgba(125, 211, 252, 0.65);
+}
+
+.jhorror-clue-copy {
+  text-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.98),
+    0 0 12px rgba(0, 0, 0, 0.9),
+    0 0 16px rgba(186, 230, 253, 0.25);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .jhorror-clue-card,
+  .jhorror-clue-ribbon,
   .jhorror-clue-rule {
     animation-duration: 10ms;
   }
@@ -215,6 +252,25 @@
   }
 }
 
+@keyframes locationNoticeLineExpand {
+  0% {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  18% {
+    opacity: 0.82;
+    transform: scaleX(1);
+  }
+  75% {
+    opacity: 0.72;
+    transform: scaleX(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scaleX(0.35);
+  }
+}
+
 .location-notice-overlay {
   position: fixed;
   top: 50%;
@@ -236,6 +292,32 @@
   animation: locationNoticeSequence 3300ms forwards;
 }
 
+.location-notice-line {
+  width: clamp(96px, 28vw, 220px);
+  height: 1px;
+  transform-origin: center;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(186, 230, 253, 0.82) 35%,
+    rgba(255, 255, 255, 0.96) 50%,
+    rgba(186, 230, 253, 0.82) 65%,
+    transparent 100%
+  );
+  box-shadow:
+    0 0 12px rgba(125, 211, 252, 0.52),
+    0 1px 6px rgba(0, 0, 0, 0.92);
+  animation: locationNoticeLineExpand 3300ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.location-notice-line--top {
+  margin-bottom: 0.7rem;
+}
+
+.location-notice-line--bottom {
+  margin-top: 0.75rem;
+}
+
 /* Nivel 1: Texto mediano (迷幽高校) */
 .location-notice-kanji {
   font-family: var(--font-ui-inter);
@@ -244,10 +326,11 @@
   letter-spacing: 0.24em;
   padding-left: 0.24em;
   line-height: 1.25;
-  color: rgba(255, 255, 255, 0.95);
+  color: #e0f2fe;
   text-shadow:
-    0 1px 10px rgba(0, 0, 0, 0.92),
-    0 0 22px rgba(0, 0, 0, 0.74);
+    0 1px 4px rgba(0, 0, 0, 0.96),
+    0 0 12px rgba(0, 0, 0, 0.9),
+    0 0 18px rgba(125, 211, 252, 0.45);
 }
 
 /* Nivel 2: Texto pequeño (Instituto de las Sombras Perdidas) */
@@ -259,10 +342,11 @@
   letter-spacing: 0.14em;
   padding-left: 0.14em;
   line-height: 1.35;
-  color: rgba(255, 255, 255, 0.84);
+  color: rgba(240, 249, 255, 0.92);
   text-shadow:
-    0 1px 8px rgba(0, 0, 0, 0.92),
-    0 0 18px rgba(0, 0, 0, 0.72);
+    0 1px 4px rgba(0, 0, 0, 0.96),
+    0 0 10px rgba(0, 0, 0, 0.9),
+    0 0 14px rgba(125, 211, 252, 0.28);
 }
 
 /* Nivel 3: Texto grande principal (- Primer Piso - / - Segundo Piso -) */
@@ -276,12 +360,14 @@
   line-height: 1.18;
   color: #ffffff;
   text-shadow:
-    0 2px 14px rgba(0, 0, 0, 0.96),
-    0 0 30px rgba(0, 0, 0, 0.8);
+    0 2px 5px rgba(0, 0, 0, 0.98),
+    0 0 14px rgba(0, 0, 0, 0.92),
+    0 0 22px rgba(186, 230, 253, 0.52);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .location-notice-overlay {
+  .location-notice-overlay,
+  .location-notice-line {
     animation-duration: 2500ms;
   }
 }
@@ -735,7 +821,7 @@
   transform: scale(0.99);
 }
 
-/* Botón minimalista de silencio en esquina superior derecha */
+/* Botón minimalista de silencio (Title Screen + HUD en escena 3D) */
 .title-audio-toggle {
   position: relative;
   z-index: 20;
@@ -745,22 +831,31 @@
   min-width: 44px;
   min-height: 44px;
   border-radius: 9999px;
-  border: 1px solid rgba(165, 243, 252, 0.24);
-  background-color: rgba(4, 9, 20, 0.62);
-  color: rgba(236, 254, 255, 0.88);
+  border: 1px solid rgba(125, 211, 252, 0.42);
+  background-color: rgba(8, 12, 22, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: rgba(240, 249, 255, 0.95);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.72),
+    0 4px 16px rgba(0, 0, 0, 0.75);
   cursor: pointer;
   transition:
     background-color 180ms ease,
     border-color 180ms ease,
     color 180ms ease,
+    box-shadow 180ms ease,
     transform 160ms ease;
 }
 
 .title-audio-toggle:hover,
 .title-audio-toggle:focus-visible {
-  background-color: rgba(12, 24, 46, 0.88);
-  border-color: rgba(165, 243, 252, 0.58);
+  background-color: rgba(13, 24, 41, 0.92);
+  border-color: rgba(186, 230, 253, 0.85);
   color: #ffffff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.8),
+    0 0 20px rgba(125, 211, 252, 0.34);
   outline: none;
 }
 
@@ -939,6 +1034,545 @@
     animation: none;
   }
 }
+
+/* ==========================================================================
+   Textbox Fijo Estilo Carpeta Nocturna (Basado en referencia) & Modales Unificados
+   ========================================================================== */
+
+.dialogue-folder-shell {
+  width: min(92vw, 680px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.dialogue-folder-tab {
+  background-color: rgba(8, 12, 22, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-top: 1px solid rgba(125, 211, 252, 0.45);
+  border-left: 1px solid rgba(125, 211, 252, 0.45);
+  border-top-left-radius: 0.75rem;
+}
+
+.dialogue-folder-body {
+  background-color: rgba(8, 12, 22, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-left: 1px solid rgba(125, 211, 252, 0.45);
+  border-right: 1px solid rgba(125, 211, 252, 0.45);
+  border-bottom: 1px solid rgba(125, 211, 252, 0.45);
+  border-bottom-left-radius: 0.65rem;
+  border-bottom-right-radius: 0.65rem;
+  border-top-right-radius: 0.35rem;
+}
+
+.dialogue-textbox-fixed {
+  position: relative;
+  width: 100%;
+  height: 152px;
+  padding: 15px 18px 22px 18px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  cursor: pointer;
+}
+
+.dialogue-textbox-inner-frame {
+  border: 1px solid rgba(125, 211, 252, 0.32);
+  border-radius: 0.4rem;
+  background: linear-gradient(
+    180deg,
+    rgba(13, 24, 41, 0.42) 0%,
+    rgba(7, 10, 18, 0.24) 100%
+  );
+  box-shadow: inset 0 0 22px rgba(125, 211, 252, 0.05);
+}
+
+.dialogue-textbox-copy {
+  font-family: var(--font-ui-inter);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.5;
+  color: #ffffff;
+  text-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.95),
+    0 0 10px rgba(0, 0, 0, 0.85);
+  margin: 0;
+  padding-right: 1.35rem;
+  word-wrap: break-word;
+  overflow: hidden;
+}
+
+@media (min-width: 640px) {
+  .dialogue-folder-shell {
+    width: min(90vw, 680px);
+  }
+
+  .dialogue-textbox-fixed {
+    height: 140px;
+    padding: 17px 24px 22px 24px;
+  }
+
+  .dialogue-textbox-copy {
+    font-size: 1rem;
+    line-height: 1.56;
+  }
+}
+
+/* Paneles unificados para Modales de Interacción, Mapa, Sensores y Pantalla Final */
+.modal-nocturnal-panel {
+  border-radius: 1.2rem;
+  border: 1px solid rgba(125, 211, 252, 0.45);
+  background-color: rgba(8, 12, 22, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow:
+    0 24px 68px rgba(0, 0, 0, 0.88),
+    inset 0 0 32px rgba(125, 211, 252, 0.05);
+}
+
+.modal-nocturnal-inner {
+  border-radius: 0.85rem;
+  border: 1px solid rgba(125, 211, 252, 0.3);
+  background: linear-gradient(
+    180deg,
+    rgba(13, 24, 41, 0.36) 0%,
+    rgba(7, 10, 18, 0.18) 100%
+  );
+}
+
+@keyframes dialogueNextArrowBounce {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.78;
+  }
+  50% {
+    transform: translate3d(0, 3px, 0);
+    opacity: 1;
+  }
+}
+
+.dialogue-advance-indicator {
+  position: absolute;
+  right: 14px;
+  bottom: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: #bae6fd;
+  text-shadow: 0 0 10px rgba(125, 211, 252, 0.75);
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+@media (min-width: 640px) {
+  .dialogue-advance-indicator {
+    right: 18px;
+    bottom: 11px;
+  }
+}
+
+.dialogue-advance-indicator.is-typing {
+  opacity: 0.22;
+}
+
+.dialogue-advance-indicator.is-next.is-ready {
+  animation: dialogueNextArrowBounce 950ms ease-in-out infinite;
+}
+
+.dialogue-advance-indicator.is-end.is-ready {
+  font-size: 0.8rem;
+  opacity: 0.95;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialogue-advance-indicator.is-next.is-ready {
+    animation: none;
+  }
+}
+
+/* ==========================================================================
+   Transición Cinemática de Escaleras (Whip Pan + Motion Blur Nocturno)
+   ========================================================================== */
+
+#stair-whip-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: all;
+  touch-action: none;
+}
+
+/* Tintado sutil de profundidad azul nocturno durante el cierre del whip pan */
+@keyframes stairWhipBackdropPulse {
+  0%,
+  100% {
+    background-color: rgba(2, 6, 16, 0);
+  }
+  30%,
+  64% {
+    background-color: rgba(2, 6, 16, 0.42);
+  }
+}
+
+.stair-whip-backdrop {
+  position: absolute;
+  inset: 0;
+  animation: stairWhipBackdropPulse 1080ms linear forwards;
+}
+
+/* SUBIR: Barrido de izquierda a derecha (-165vw -> 0 -> +165vw) con pausa en negro */
+@keyframes stairWhipSubir {
+  0% {
+    transform: translate3d(-165vw, 0, 0) skewX(-6deg);
+    animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+  }
+  33% {
+    transform: translate3d(0vw, 0, 0) skewX(0deg);
+    animation-timing-function: linear;
+  }
+  59% {
+    transform: translate3d(0vw, 0, 0) skewX(0deg);
+    animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+  }
+  100% {
+    transform: translate3d(165vw, 0, 0) skewX(-5deg);
+  }
+}
+
+/* BAJAR: Barrido inverso de derecha a izquierda (+165vw -> 0 -> -165vw) con pausa en negro */
+@keyframes stairWhipBajar {
+  0% {
+    transform: translate3d(165vw, 0, 0) skewX(6deg);
+    animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+  }
+  33% {
+    transform: translate3d(0vw, 0, 0) skewX(0deg);
+    animation-timing-function: linear;
+  }
+  59% {
+    transform: translate3d(0vw, 0, 0) skewX(0deg);
+    animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+  }
+  100% {
+    transform: translate3d(-165vw, 0, 0) skewX(5deg);
+  }
+}
+
+.stair-whip-carriage {
+  position: absolute;
+  top: -4vh;
+  bottom: -4vh;
+  left: -60vw;
+  width: 220vw;
+  will-change: transform;
+}
+
+#stair-whip-overlay.is-subir .stair-whip-carriage {
+  animation: stairWhipSubir 1080ms forwards;
+}
+
+#stair-whip-overlay.is-bajar .stair-whip-carriage {
+  animation: stairWhipBajar 1080ms forwards;
+}
+
+/* Alas laterales con desenfoque gaussiano y degradado azul profundo nocturno -> negro */
+.stair-whip-blur-wings {
+  position: absolute;
+  inset: 0;
+  filter: blur(18px);
+  transform: scaleX(1.06);
+  background: linear-gradient(
+    to right,
+    rgba(7, 19, 38, 0) 0%,
+    rgba(15, 41, 74, 0.72) 10%,
+    #071326 19%,
+    #000000 28%,
+    #000000 72%,
+    #071326 81%,
+    rgba(15, 41, 74, 0.72) 90%,
+    rgba(7, 19, 38, 0) 100%
+  );
+}
+
+/* Bandas horizontales de velocidad (estelas cian pálido / azul noche) */
+.stair-whip-streaks {
+  position: absolute;
+  inset: 0;
+  filter: blur(5px);
+  opacity: 0.92;
+  background-image:
+    linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(186, 230, 253, 0.12) 11%,
+      transparent 13%,
+      transparent 28%,
+      rgba(56, 189, 248, 0.18) 31%,
+      transparent 35%,
+      transparent 52%,
+      rgba(186, 230, 253, 0.14) 55%,
+      transparent 58%,
+      transparent 74%,
+      rgba(56, 189, 248, 0.16) 77%,
+      transparent 82%,
+      rgba(15, 41, 74, 0.25) 92%,
+      transparent 100%
+    ),
+    linear-gradient(
+      to right,
+      rgba(56, 189, 248, 0) 0%,
+      rgba(186, 230, 253, 0.36) 14%,
+      rgba(15, 41, 74, 0.45) 22%,
+      rgba(0, 0, 0, 0) 31%,
+      rgba(0, 0, 0, 0) 69%,
+      rgba(15, 41, 74, 0.45) 78%,
+      rgba(186, 230, 253, 0.36) 86%,
+      rgba(56, 189, 248, 0) 100%
+    );
+  background-blend-mode: screen;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    #000 12%,
+    #000 26%,
+    transparent 34%,
+    transparent 66%,
+    #000 74%,
+    #000 88%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    #000 12%,
+    #000 26%,
+    transparent 34%,
+    transparent 66%,
+    #000 74%,
+    #000 88%,
+    transparent 100%
+  );
+}
+
+/* Núcleo central sólido #000000 que garantiza cobertura total sin cortes del canvas 3D */
+.stair-whip-black-core {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50vw;
+  width: 120vw;
+  background-color: #000000;
+}
+
+@keyframes stairWhipReducedFade {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  30%,
+  65% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stair-whip-backdrop,
+  .stair-whip-blur-wings,
+  .stair-whip-streaks {
+    display: none;
+  }
+
+  #stair-whip-overlay.is-subir .stair-whip-carriage,
+  #stair-whip-overlay.is-bajar .stair-whip-carriage {
+    left: 0;
+    width: 100vw;
+    animation: stairWhipReducedFade 650ms ease-in-out forwards;
+  }
+
+  .stair-whip-black-core {
+    left: 0;
+    width: 100vw;
+  }
+}
+
+/* ==========================================================================
+   HUD Nocturno Minimalista: Pista Flotante Sin Recuadro (#hud-clue-ticker) & Controles
+   ========================================================================== */
+
+.hud-clue-ticker {
+  width: 100%;
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.hud-clue-viewport {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 12%,
+    black 88%,
+    transparent
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 12%,
+    black 88%,
+    transparent
+  );
+}
+
+@keyframes clueTickerMarquee {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.hud-clue-track {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  animation-name: clueTickerMarquee;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+.hud-clue-copy {
+  font-family: var(--font-ui-inter);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.025em;
+  color: #ffffff;
+  text-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.95),
+    0 0 10px rgba(0, 0, 0, 0.85);
+}
+
+.hud-clue-separator {
+  padding: 0 1.25rem;
+  color: rgba(186, 230, 253, 0.78);
+  text-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.95),
+    0 0 10px rgba(0, 0, 0, 0.85);
+}
+
+/* Controles Minimalistas (Joystick + Acción) con halos oscuros para zonas 3D brillantes */
+.hud-joystick-pad {
+  border: 1.25px solid rgba(186, 230, 253, 0.48);
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(13, 24, 41, 0.42) 0%,
+    rgba(7, 10, 18, 0.68) 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.68),
+    0 6px 20px rgba(0, 0, 0, 0.72);
+  transition:
+    border-color 180ms ease,
+    box-shadow 200ms ease;
+}
+
+.hud-joystick-pad.is-active {
+  border-color: rgba(186, 230, 253, 0.85);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.75),
+    0 0 24px rgba(125, 211, 252, 0.34),
+    inset 0 0 18px rgba(125, 211, 252, 0.14);
+}
+
+.hud-joystick-knob {
+  border: 1.25px solid rgba(186, 230, 253, 0.72);
+  background-color: rgba(8, 12, 22, 0.84);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.75),
+    0 4px 14px rgba(0, 0, 0, 0.82);
+}
+
+.hud-joystick-knob.is-active {
+  border-color: #ffffff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.8),
+    0 0 20px rgba(125, 211, 252, 0.62);
+}
+
+.hud-action-button {
+  border: 1.25px solid rgba(186, 230, 253, 0.42);
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(13, 24, 41, 0.56) 0%,
+    rgba(7, 10, 18, 0.78) 100%
+  );
+  color: rgba(248, 250, 252, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.72),
+    0 6px 20px rgba(0, 0, 0, 0.75);
+  transition:
+    border-color 200ms ease,
+    color 200ms ease,
+    box-shadow 220ms ease,
+    transform 140ms ease,
+    background-color 200ms ease;
+}
+
+.hud-action-button.is-ready {
+  border-color: rgba(186, 230, 253, 0.88);
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(13, 24, 41, 0.84) 0%,
+    rgba(7, 10, 18, 0.92) 100%
+  );
+  color: #ffffff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.82),
+    0 0 26px rgba(125, 211, 252, 0.36),
+    inset 0 0 18px rgba(186, 230, 253, 0.16);
+}
+
+.hud-action-button.is-ready:hover,
+.hud-action-button.is-ready:focus-visible {
+  border-color: #ffffff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.85),
+    0 0 32px rgba(186, 230, 253, 0.54),
+    inset 0 0 20px rgba(186, 230, 253, 0.24);
+  outline: none;
+}
+
+.hud-action-button.is-ready:active {
+  transform: scale(0.94);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.85),
+    0 0 36px rgba(125, 211, 252, 0.68);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-clue-track {
+    animation: none;
+  }
+}
+
+
+
 
 
 

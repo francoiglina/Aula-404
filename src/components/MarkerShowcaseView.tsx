@@ -49,28 +49,30 @@ export const MarkerShowcaseView: React.FC<MarkerShowcaseViewProps> = ({
     <div className="mt-4 space-y-3">
       {/* Selector de Marcador GLB ("objeto" / "persona") + Reset de Cámara */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 rounded-xl border border-stone-800 bg-stone-900 p-1">
+        <div className="flex items-center gap-1.5 rounded-xl border border-[#7dd3fc]/25 bg-[#070a12]/90 p-1">
           <button
             type="button"
             onClick={() => handleSelectKind('objeto')}
-            className={`min-h-[38px] px-3.5 rounded-lg text-xs transition-colors cursor-pointer whitespace-nowrap ${
+            className={`min-h-[38px] px-3.5 rounded-lg text-xs transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
               activeKind === 'objeto'
-                ? 'bg-rose-600 font-semibold text-white'
-                : 'font-medium text-stone-300 hover:text-stone-100'
+                ? 'border border-[#ff6588]/70 bg-[#0d1829] font-semibold text-white shadow-[0_0_14px_rgba(255,101,136,0.22)]'
+                : 'font-medium text-slate-300 hover:text-white'
             }`}
           >
+            <span className="inline-block h-2 w-2 rotate-45 bg-[#ff6588]" />
             Marcador Objeto
           </button>
 
           <button
             type="button"
             onClick={() => handleSelectKind('persona')}
-            className={`min-h-[38px] px-3.5 rounded-lg text-xs transition-colors cursor-pointer whitespace-nowrap ${
+            className={`min-h-[38px] px-3.5 rounded-lg text-xs transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
               activeKind === 'persona'
-                ? 'bg-sky-600 font-semibold text-white'
-                : 'font-medium text-stone-300 hover:text-stone-100'
+                ? 'border border-[#4ad0ff]/70 bg-[#0d1829] font-semibold text-white shadow-[0_0_14px_rgba(74,208,255,0.24)]'
+                : 'font-medium text-slate-300 hover:text-white'
             }`}
           >
+            <span className="inline-block h-2 w-2 rounded-full bg-[#4ad0ff]" />
             Marcador Persona
           </button>
         </div>
@@ -78,16 +80,16 @@ export const MarkerShowcaseView: React.FC<MarkerShowcaseViewProps> = ({
         <button
           type="button"
           onClick={() => viewerRef.current?.resetCamera()}
-          className="min-h-[38px] px-3.5 rounded-xl border border-stone-800 bg-stone-900 text-xs font-medium text-stone-200 hover:bg-stone-800 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+          className="min-h-[38px] px-3.5 rounded-xl border border-[#7dd3fc]/30 bg-[#0d1829]/80 text-xs font-medium text-slate-100 hover:border-[#bae6fd]/70 hover:bg-[#0d1829] transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
         >
-          <RotateCcw className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+          <RotateCcw className="h-3.5 w-3.5 text-[#7dd3fc] shrink-0" />
           <span>Centrar encuadre</span>
         </button>
       </div>
 
-      {/* Viewport WebGL Transparente integrado sobre el tema oscuro de Aula 404 */}
+      {/* Viewport WebGL Transparente integrado sobre el tema nocturno de Aula 404 */}
       <div
-        className={`relative w-full aspect-[16/10] overflow-hidden rounded-2xl border border-stone-800 ${
+        className={`relative w-full aspect-[16/10] overflow-hidden rounded-xl border border-[#7dd3fc]/30 ${
           activeKind === 'objeto' ? 'marker-viewport-objeto' : 'marker-viewport-persona'
         }`}
       >
@@ -96,7 +98,7 @@ export const MarkerShowcaseView: React.FC<MarkerShowcaseViewProps> = ({
 
         {isLoading && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="text-xs font-medium text-stone-300">
+            <span className="hud-text-contrast text-xs font-medium text-[#bae6fd]">
               Cargando modelo 3D...
             </span>
           </div>
@@ -104,12 +106,12 @@ export const MarkerShowcaseView: React.FC<MarkerShowcaseViewProps> = ({
 
         {loadError && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center">
-            <span className="text-xs font-medium text-rose-400">{loadError}</span>
+            <span className="text-xs font-medium text-[#ff6588]">{loadError}</span>
           </div>
         )}
 
         {/* Leyenda discreta inferior sin cubrir el marcador central */}
-        <div className="pointer-events-none absolute bottom-3 left-4 right-4 flex flex-wrap items-center justify-between gap-2 text-[11px] text-stone-400">
+        <div className="hud-text-contrast pointer-events-none absolute bottom-3 left-4 right-4 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-300">
           <span className="truncate">
             {MARKER_GLB_PATHS[activeKind].replace(/^\//, '')}
           </span>
