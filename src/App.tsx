@@ -8,8 +8,9 @@ import { MobileControlsOverlay } from './components/MobileControlsOverlay';
 import { NewClueBanner } from './components/NewClueBanner';
 import { SchoolMapModal, SchoolModalTab } from './components/SchoolMapModal';
 import { SensorChallengeModal } from './components/SensorChallengeModal';
+import { IntroLoreScreen } from './components/IntroLoreScreen';
 import { TopSensorHud } from './components/TopSensorHud';
-import { WelcomePermissionsModal } from './components/WelcomePermissionsModal';
+import { TitleScreen } from './components/TitleScreen';
 import {
   getPhaseIndicator,
   INITIAL_CLUES,
@@ -39,6 +40,7 @@ export default function App() {
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<SchoolEngine | null>(null);
 
+  const [entryStage, setEntryStage] = useState<'title' | 'intro' | 'ready'>('title');
   const [isInitialized, setIsInitialized] = useState(false);
   const [phase, setPhase] = useState<GamePhase>('ESTADO_0');
   const [finalSubstate, setFinalSubstate] = useState<FinalSubstate>('pendiente');
@@ -61,7 +63,7 @@ export default function App() {
 
   // Controls & Sensors UI state
   const [isMuted, setIsMuted] = useState(false);
-  const [cameraAllowed, setCameraAllowed] = useState(false);
+  const [cameraAllowed] = useState(false);
   const [playerCoords, setPlayerCoords] = useState<{
     x: number;
     z: number;
@@ -365,18 +367,18 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isInitialized, activeDialogue, activeChallenge, handleOverlayInteract]);
 
-  const handleStartExperience = async (requestFullSensors: boolean) => {
+  const handlePrepareMainScene = useCallback(() => {
     soundEngine.init();
-    soundEngine.startBgm(1.3);
-    soundEngine.playConfirm();
-    if (requestFullSensors) {
-      const perms = await sensorService.requestAllPermissions();
-      setCameraAllowed(perms.cameraAllowed);
-    }
+    void sensorService.requestMotionOnly();
+  }, []);
+
+  const handleCompleteIntroLore = useCallback(() => {
+    setEntryStage('ready');
     setIsInitialized(true);
+    soundEngine.startBgm(1.4);
     lastNotifiedFloorRef.current = null;
     showLocationNotice(1);
-  };
+  }, [showLocationNotice]);
 
   /**
    * Se ejecuta en el instante exacto en que el usuario cierra el texto final del modal de diálogo/sensor:
@@ -647,9 +649,29 @@ export default function App() {
         </div>
       )}
 
-      {/* Initial Onboarding & Explicit Sensor Permission Gesture */}
-      {!isInitialized && (
-        <WelcomePermissionsModal onStartExperience={handleStartExperience} />
+      {/* Secuencia Narrativa Intermedia (#intro-lore-screen) antes de revelar la escena 3D */}
+      {entryStage === 'intro' && (
+        <IntroLoreScreen
+          isMuted={isMuted}
+          onToggleMute={(next) => {
+            setIsMuted(next);
+            soundEngine.setMuted(next);
+          }}
+          onPrepareMainScene={handlePrepareMainScene}
+          onComplete={handleCompleteIntroLore}
+        />
+      )}
+
+      {/* Pantalla de Inicio (Title Screen) */}
+      {entryStage === 'title' && (
+        <TitleScreen
+          isMuted={isMuted}
+          onToggleMute={(next) => {
+            setIsMuted(next);
+            soundEngine.setMuted(next);
+          }}
+          onComplete={() => setEntryStage('intro')}
+        />
       )}
     </main>
   );

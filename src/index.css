@@ -305,5 +305,701 @@
   );
 }
 
+/* ==========================================================================
+   Pantalla de Inicio (Title Screen) — Terror Psicológico "Aula 404"
+   ========================================================================== */
+
+#title-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: #020308;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: clamp(1.5rem, 4vh, 3rem) clamp(1.25rem, 4vw, 3rem);
+  user-select: none;
+}
+
+/* Telón negro cinemático para Fade-In inicial (1.8s) y Fade-Out de salida (1.5s) */
+.title-black-curtain {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  background-color: #000000;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 1800ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity;
+}
+
+.title-black-curtain.is-revealed {
+  opacity: 0;
+}
+
+.title-black-curtain.is-exiting {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 1500ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Fondo arquitectónico nocturno con movimiento Ken Burns lento */
+@keyframes titleKenBurns {
+  0% {
+    transform: scale(1.03) translate3d(-0.6%, 0.4%, 0);
+  }
+  50% {
+    transform: scale(1.11) translate3d(1.1%, -0.8%, 0);
+  }
+  100% {
+    transform: scale(1.03) translate3d(-0.6%, 0.4%, 0);
+  }
+}
+
+.title-bg-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.title-bg-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: 0.78;
+  filter: contrast(1.08) brightness(0.84) saturate(0.92);
+  transform-origin: center center;
+  animation: titleKenBurns 34s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* Viñeta oscura periférica + tinte frío nocturno */
+.title-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      ellipse 72% 64% at 50% 46%,
+      rgba(3, 8, 18, 0.14) 0%,
+      rgba(2, 5, 14, 0.56) 62%,
+      rgba(0, 1, 5, 0.94) 100%
+    ),
+    linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.58) 0%,
+      rgba(0, 0, 0, 0.06) 32%,
+      rgba(0, 0, 0, 0.18) 68%,
+      rgba(0, 0, 0, 0.86) 100%
+    );
+}
+
+/* Scanlines CRT sutiles y grano fílmico sin backdrop-filter */
+@keyframes titleGrainShift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  25% {
+    transform: translate3d(-1.5%, 1%, 0);
+  }
+  50% {
+    transform: translate3d(1%, -1.5%, 0);
+  }
+  75% {
+    transform: translate3d(-0.8%, -0.8%, 0);
+  }
+}
+
+.title-scanlines {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0.24;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.03) 0px,
+    rgba(255, 255, 255, 0.03) 1px,
+    rgba(0, 0, 0, 0.34) 2px,
+    rgba(0, 0, 0, 0.34) 3px
+  );
+}
+
+.title-film-grain {
+  position: absolute;
+  inset: -4%;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0.065;
+  background-image:
+    radial-gradient(rgba(224, 242, 254, 0.7) 0.55px, transparent 0.55px),
+    radial-gradient(rgba(255, 255, 255, 0.45) 0.5px, transparent 0.5px);
+  background-size: 6px 6px, 9px 9px;
+  background-position: 0 0, 3px 4px;
+  animation: titleGrainShift 0.36s steps(4, end) infinite;
+}
+
+/* Contenedor principal del SVG vectorial "AULA 404" */
+@keyframes titleLogoIdleFloat {
+  0%,
+  100% {
+    transform: translate3d(0, 0px, 0);
+  }
+  50% {
+    transform: translate3d(0, -5px, 0);
+  }
+}
+
+/* Parpadeo irregular estilo tubo fluorescente defectuoso */
+@keyframes titleFluorescentFlicker {
+  0%,
+  18%,
+  22%,
+  63%,
+  67%,
+  100% {
+    opacity: 1;
+  }
+  19.5% {
+    opacity: 0.72;
+  }
+  20.6% {
+    opacity: 0.96;
+  }
+  64.4% {
+    opacity: 0.8;
+  }
+  65.2% {
+    opacity: 0.58;
+  }
+  66% {
+    opacity: 0.94;
+  }
+}
+
+/* Entrada con encendido eléctrico / glitch sutil del Torii, Pizarrón y "ULA" */
+@keyframes titleLogoElectricalOn {
+  0% {
+    opacity: 0;
+    transform: translate3d(-4px, 0, 0) scale(0.985);
+    filter: drop-shadow(0 0 0px rgba(165, 243, 252, 0));
+  }
+  18% {
+    opacity: 0.85;
+    transform: translate3d(2px, 0, 0) scale(1);
+    filter: drop-shadow(0 0 18px rgba(165, 243, 252, 0.75));
+  }
+  28% {
+    opacity: 0.22;
+    transform: translate3d(-2px, 0, 0);
+  }
+  44% {
+    opacity: 0.95;
+    transform: translate3d(1px, 0, 0);
+  }
+  54% {
+    opacity: 0.52;
+    transform: translate3d(0, 0, 0);
+  }
+  72% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    filter: drop-shadow(0 0 16px rgba(165, 243, 252, 0.55));
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    filter: drop-shadow(0 0 12px rgba(207, 250, 254, 0.45));
+  }
+}
+
+/* Despliegue en perspectiva de la proyección "404" en el suelo */
+@keyframes titleFloor404Unfold {
+  0% {
+    opacity: 0;
+    clip-path: inset(0 0 100% 0);
+    transform: translate3d(-12px, -16px, 0) scaleY(0.84);
+  }
+  35% {
+    opacity: 0.65;
+    clip-path: inset(0 0 42% 0);
+  }
+  100% {
+    opacity: 1;
+    clip-path: inset(0 0 0% 0);
+    transform: translate3d(0, 0, 0) scaleY(1);
+  }
+}
+
+@keyframes titleWallFrameFade {
+  0% {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.title-logo-stage {
+  position: relative;
+  z-index: 10;
+  width: min(88vw, 660px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: auto 0;
+  animation:
+    titleLogoIdleFloat 6.5s ease-in-out 2.8s infinite,
+    titleFluorescentFlicker 8.5s linear 3s infinite;
+  will-change: transform, opacity;
+}
+
+.title-logo-svg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 0 22px rgba(165, 243, 252, 0.24))
+    drop-shadow(0 12px 28px rgba(0, 0, 0, 0.78));
+}
+
+#logo-wall-frame {
+  opacity: 0;
+  animation: titleWallFrameFade 1100ms cubic-bezier(0.22, 1, 0.36, 1) 700ms forwards;
+  transform-origin: center center;
+}
+
+#logo-torii {
+  opacity: 0;
+  animation: titleLogoElectricalOn 950ms cubic-bezier(0.22, 1, 0.36, 1) 1050ms forwards;
+}
+
+#logo-board {
+  opacity: 0;
+  animation: titleLogoElectricalOn 900ms cubic-bezier(0.22, 1, 0.36, 1) 1220ms forwards;
+}
+
+#logo-ula {
+  opacity: 0;
+  animation: titleLogoElectricalOn 950ms cubic-bezier(0.22, 1, 0.36, 1) 1360ms forwards;
+}
+
+#logo-floor-404 {
+  opacity: 0;
+  transform-origin: 50% 0%;
+  animation: titleFloor404Unfold 1250ms cubic-bezier(0.16, 1, 0.3, 1) 1680ms forwards;
+}
+
+/* Botón interactivo "COMENZAR" estilo Press-Start con haz de luz y líneas laterales */
+@keyframes titleStartPromptEnter {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes titleStartGlowPulse {
+  0%,
+  100% {
+    opacity: 0.74;
+    text-shadow:
+      0 0 12px rgba(207, 250, 254, 0.42),
+      0 0 28px rgba(103, 232, 249, 0.22);
+  }
+  50% {
+    opacity: 1;
+    text-shadow:
+      0 0 18px rgba(255, 255, 255, 0.8),
+      0 0 38px rgba(165, 243, 252, 0.5);
+  }
+}
+
+.title-start-wrapper {
+  position: relative;
+  z-index: 12;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: clamp(0.75rem, 3.5vh, 2.25rem);
+  opacity: 0;
+  animation: titleStartPromptEnter 950ms cubic-bezier(0.22, 1, 0.36, 1) 2100ms forwards;
+}
+
+.title-start-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.15rem;
+  min-height: 48px;
+  padding: 0.75rem 2.75rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #f0fdff;
+  font-family: var(--font-ui-inter);
+  font-size: clamp(0.95rem, 2vw, 1.125rem);
+  font-weight: 500;
+  letter-spacing: 0.38em;
+  padding-left: calc(2.75rem + 0.38em);
+  text-transform: uppercase;
+  outline: none;
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), color 200ms ease;
+  animation: titleStartGlowPulse 3.6s ease-in-out 3s infinite;
+}
+
+/* Haz de luz horizontal difuminado detrás de COMENZAR */
+.title-start-beam {
+  position: absolute;
+  inset: 4px -28px;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 62% 55% at 50% 50%,
+    rgba(165, 243, 252, 0.2) 0%,
+    rgba(103, 232, 249, 0.08) 46%,
+    rgba(0, 0, 0, 0) 78%
+  );
+  opacity: 0.75;
+  transform: scaleX(0.92);
+  transition:
+    opacity 240ms ease,
+    transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Líneas laterales sutiles que se expanden en hover/focus */
+.title-start-line {
+  width: clamp(22px, 5vw, 48px);
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    rgba(165, 243, 252, 0),
+    rgba(207, 250, 254, 0.78)
+  );
+  transform: scaleX(0.68);
+  transform-origin: right center;
+  opacity: 0.65;
+  transition:
+    transform 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 220ms ease;
+}
+
+.title-start-line--right {
+  background: linear-gradient(
+    to left,
+    rgba(165, 243, 252, 0),
+    rgba(207, 250, 254, 0.78)
+  );
+  transform-origin: left center;
+}
+
+.title-start-btn:hover,
+.title-start-btn:focus-visible {
+  color: #ffffff;
+  transform: scale(1.025);
+}
+
+.title-start-btn:hover .title-start-beam,
+.title-start-btn:focus-visible .title-start-beam {
+  opacity: 1;
+  transform: scaleX(1.16);
+}
+
+.title-start-btn:hover .title-start-line,
+.title-start-btn:focus-visible .title-start-line {
+  opacity: 1;
+  transform: scaleX(1.22);
+}
+
+.title-start-btn:focus-visible {
+  box-shadow: 0 0 0 1px rgba(165, 243, 252, 0.48);
+}
+
+.title-start-btn:active {
+  transform: scale(0.99);
+}
+
+.title-start-hint {
+  margin-top: 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  color: rgba(207, 250, 254, 0.56);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+}
+
+/* Botón minimalista de silencio en esquina superior derecha */
+.title-audio-toggle {
+  position: relative;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 9999px;
+  border: 1px solid rgba(165, 243, 252, 0.24);
+  background-color: rgba(4, 9, 20, 0.62);
+  color: rgba(236, 254, 255, 0.88);
+  cursor: pointer;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    transform 160ms ease;
+}
+
+.title-audio-toggle:hover,
+.title-audio-toggle:focus-visible {
+  background-color: rgba(12, 24, 46, 0.88);
+  border-color: rgba(165, 243, 252, 0.58);
+  color: #ffffff;
+  outline: none;
+}
+
+.title-audio-toggle:active {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .title-bg-image,
+  .title-film-grain,
+  .title-logo-stage,
+  #logo-wall-frame,
+  #logo-torii,
+  #logo-board,
+  #logo-ula,
+  #logo-floor-404,
+  .title-start-wrapper,
+  .title-start-btn {
+    animation: none !important;
+    opacity: 1 !important;
+    clip-path: none !important;
+    transform: none !important;
+  }
+
+  .title-black-curtain {
+    transition-duration: 250ms;
+  }
+}
+
+/* ==========================================================================
+   Secuencia Narrativa Intermedia (#intro-lore-screen) — Typewriter Cinématico
+   ========================================================================== */
+
+#intro-lore-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: #000000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: clamp(1.5rem, 4vh, 3rem) clamp(1.5rem, 5vw, 3.5rem);
+  user-select: none;
+  opacity: 1;
+  transition: opacity 1500ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity;
+}
+
+#intro-lore-screen.is-exiting {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.intro-lore-content {
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+  transition:
+    opacity 1150ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 1150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+#intro-lore-screen.is-entered .intro-lore-content {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+.intro-lore-stage {
+  position: relative;
+  z-index: 10;
+  width: min(92vw, 44rem);
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.intro-lore-divider {
+  width: 3rem;
+  height: 1px;
+  margin-bottom: clamp(1.5rem, 3.5vh, 2.25rem);
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0),
+    rgba(207, 250, 254, 0.55),
+    rgba(255, 255, 255, 0)
+  );
+}
+
+.intro-lore-paragraphs {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(1.25rem, 3vh, 1.85rem);
+  min-height: clamp(13rem, 28vh, 17rem);
+  justify-content: center;
+}
+
+.intro-lore-paragraph {
+  font-family: var(--font-ui-inter);
+  font-size: clamp(0.98rem, 2.1vw, 1.15rem);
+  font-weight: 400;
+  line-height: 1.85;
+  letter-spacing: 0.015em;
+  color: rgba(255, 255, 255, 0.94);
+  text-wrap: pretty;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.85);
+}
+
+@keyframes introCursorBlink {
+  0%,
+  49% {
+    opacity: 0.95;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.intro-type-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.08em;
+  margin-left: 3px;
+  vertical-align: -0.14em;
+  background-color: #cffafe;
+  box-shadow: 0 0 8px rgba(165, 243, 252, 0.72);
+  animation: introCursorBlink 780ms steps(1, end) infinite;
+}
+
+@keyframes introContinueFadeIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes introContinueBreath {
+  0%,
+  100% {
+    opacity: 0.78;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.intro-continue-footer {
+  position: relative;
+  z-index: 12;
+  min-height: 4.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: clamp(0.5rem, 2.5vh, 1.5rem);
+}
+
+.intro-continue-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.6rem 1.75rem;
+  background: transparent;
+  border: none;
+  color: #ecfeff;
+  font-family: var(--font-ui-inter);
+  font-size: clamp(0.88rem, 1.8vw, 0.98rem);
+  font-weight: 500;
+  letter-spacing: 0.26em;
+  padding-left: calc(1.75rem + 0.26em);
+  text-transform: uppercase;
+  cursor: pointer;
+  outline: none;
+  text-shadow:
+    0 0 12px rgba(207, 250, 254, 0.45),
+    0 0 24px rgba(103, 232, 249, 0.2);
+  transition: color 180ms ease, transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation:
+    introContinueFadeIn 520ms cubic-bezier(0.22, 1, 0.36, 1) forwards,
+    introContinueBreath 2.8s ease-in-out 520ms infinite;
+}
+
+.intro-continue-btn:hover,
+.intro-continue-btn:focus-visible {
+  color: #ffffff;
+  transform: translate3d(2px, 0, 0);
+}
+
+.intro-continue-btn:focus-visible {
+  box-shadow: 0 0 0 1px rgba(165, 243, 252, 0.45);
+}
+
+.intro-skip-hint {
+  font-family: var(--font-ui-inter);
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.36);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #intro-lore-screen {
+    transition-duration: 250ms;
+  }
+
+  .intro-lore-content {
+    transition-duration: 180ms;
+    transform: none;
+  }
+
+  .intro-type-cursor,
+  .intro-continue-btn {
+    animation: none;
+  }
+}
+
+
+
 
 
