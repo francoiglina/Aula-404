@@ -392,7 +392,6 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           <span>COMENZAR</span>
           <span className="title-start-line title-start-line--right" aria-hidden="true" />
         </button>
-        <p className="title-start-hint">Haz clic o presiona Enter para ingresar</p>
       </div>
     </section>
   );

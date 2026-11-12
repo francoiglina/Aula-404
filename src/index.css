@@ -735,15 +735,6 @@
   transform: scale(0.99);
 }
 
-.title-start-hint {
-  margin-top: 0.5rem;
-  font-size: 0.72rem;
-  font-weight: 400;
-  letter-spacing: 0.16em;
-  color: rgba(207, 250, 254, 0.56);
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
-}
-
 /* Botón minimalista de silencio en esquina superior derecha */
 .title-audio-toggle {
   position: relative;
@@ -817,6 +808,7 @@
   justify-content: space-between;
   padding: clamp(1.5rem, 4vh, 3rem) clamp(1.5rem, 5vw, 3.5rem);
   user-select: none;
+  cursor: pointer;
   opacity: 1;
   transition: opacity 1500ms cubic-bezier(0.4, 0, 0.2, 1);
   will-change: opacity;
@@ -906,81 +898,10 @@
   animation: introCursorBlink 780ms steps(1, end) infinite;
 }
 
-@keyframes introContinueFadeIn {
-  0% {
-    opacity: 0;
-    transform: translate3d(0, 8px, 0);
-  }
-  100% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0);
-  }
-}
-
-@keyframes introContinueBreath {
-  0%,
-  100% {
-    opacity: 0.78;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-.intro-continue-footer {
-  position: relative;
-  z-index: 12;
-  min-height: 4.5rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  padding-bottom: clamp(0.5rem, 2.5vh, 1.5rem);
-}
-
-.intro-continue-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
+.intro-lore-spacer {
   min-height: 44px;
-  padding: 0.6rem 1.75rem;
-  background: transparent;
-  border: none;
-  color: #ecfeff;
-  font-family: var(--font-ui-inter);
-  font-size: clamp(0.88rem, 1.8vw, 0.98rem);
-  font-weight: 500;
-  letter-spacing: 0.26em;
-  padding-left: calc(1.75rem + 0.26em);
-  text-transform: uppercase;
-  cursor: pointer;
-  outline: none;
-  text-shadow:
-    0 0 12px rgba(207, 250, 254, 0.45),
-    0 0 24px rgba(103, 232, 249, 0.2);
-  transition: color 180ms ease, transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
-  animation:
-    introContinueFadeIn 520ms cubic-bezier(0.22, 1, 0.36, 1) forwards,
-    introContinueBreath 2.8s ease-in-out 520ms infinite;
-}
-
-.intro-continue-btn:hover,
-.intro-continue-btn:focus-visible {
-  color: #ffffff;
-  transform: translate3d(2px, 0, 0);
-}
-
-.intro-continue-btn:focus-visible {
-  box-shadow: 0 0 0 1px rgba(165, 243, 252, 0.45);
-}
-
-.intro-skip-hint {
-  font-family: var(--font-ui-inter);
-  font-size: 0.72rem;
-  font-weight: 400;
-  letter-spacing: 0.14em;
-  color: rgba(255, 255, 255, 0.36);
+  width: 100%;
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -993,8 +914,7 @@
     transform: none;
   }
 
-  .intro-type-cursor,
-  .intro-continue-btn {
+  .intro-type-cursor {
     animation: none;
   }
 }

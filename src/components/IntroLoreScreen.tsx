@@ -275,26 +275,8 @@ export const IntroLoreScreen: React.FC<IntroLoreScreenProps> = ({
         </div>
       </div>
 
-      {/* Indicador inferior sutil para completar escritura o ingresar a la escena 3D */}
-      <div className="intro-lore-content intro-continue-footer">
-        {isTypingComplete ? (
-          <button
-            id="btn-intro-continue"
-            type="button"
-            data-no-confirm-sfx="true"
-            disabled={isExiting}
-            onClick={(e) => {
-              e.stopPropagation();
-              triggerExitToScene();
-            }}
-            className="intro-continue-btn"
-          >
-            <span>Continuar ▸</span>
-          </button>
-        ) : (
-          <p className="intro-skip-hint">Haz clic o presiona una tecla para completar</p>
-        )}
-      </div>
+      {/* Espaciador inferior limpio para centrar verticalmente los párrafos sin textos instructivos */}
+      <div className="intro-lore-spacer" aria-hidden="true" />
     </section>
   );
 };

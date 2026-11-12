@@ -8,6 +8,35 @@
 export const TITLE_SCREEN_AUDIO_URL = '/assets/aistudio/title_screen_151254f5.mp3';
 export const OPENING_LORE_AUDIO_URL = '/assets/aistudio/opening_ae3411bf.mp3';
 
+const UNLOCK_EVENTS: Array<keyof WindowEventMap> = [
+  'pointerdown',
+  'click',
+  'keydown',
+  'touchstart',
+];
+
+const preloadedAudioCache = new Map<string, HTMLAudioElement>();
+
+/**
+ * Precarga desde el inicio ambos archivos MP3 con preload="auto" para evitar
+ * latencia al cambiar entre el Title Screen y el Opening Lore Screen.
+ */
+export function preloadIntroAudioAssets(): void {
+  if (typeof window === 'undefined' || typeof Audio === 'undefined') return;
+  for (const url of [TITLE_SCREEN_AUDIO_URL, OPENING_LORE_AUDIO_URL]) {
+    if (!preloadedAudioCache.has(url)) {
+      const el = new Audio(url);
+      el.preload = 'auto';
+      el.load();
+      preloadedAudioCache.set(url, el);
+    }
+  }
+}
+
+if (typeof window !== 'undefined') {
+  preloadIntroAudioAssets();
+}
+
 export interface TitleAudioOptions {
   src?: string;
   targetVolume?: number;
@@ -36,11 +65,13 @@ export class TitleAudioController {
     this.onPlaybackStateChange = options.onPlaybackStateChange;
 
     if (typeof window !== 'undefined' && typeof Audio !== 'undefined') {
-      const audio = new Audio(options.src ?? TITLE_SCREEN_AUDIO_URL);
+      const src = options.src ?? TITLE_SCREEN_AUDIO_URL;
+      const audio = new Audio(src);
       audio.loop = true;
       audio.preload = 'auto';
       audio.volume = 0;
       audio.muted = this.isMuted;
+      audio.load();
       this.audio = audio;
     }
   }
@@ -48,66 +79,81 @@ export class TitleAudioController {
   /**
    * Intenta reproducir el bucle automáticamente al cargar la pantalla.
    * Si el navegador bloquea el autoplay sin interacción previa, queda en espera
-   * hasta el primer click, toque o pulsación de tecla del usuario.
+   * hasta el primer contacto del usuario con la ventana.
    */
-  public async start(): Promise<void> {
-    if (this.isDisposed || !this.audio || this.isFadingOut) return;
+  public start(): Promise<void> {
+    if (this.isDisposed || !this.audio || this.isFadingOut) return Promise.resolve();
 
     this.bindGestureUnlock();
+    this.audio.volume = 0;
+    this.audio.muted = this.isMuted;
 
-    try {
-      this.audio.volume = 0;
-      this.audio.muted = this.isMuted;
-      await this.audio.play();
-      if (this.isDisposed) {
-        this.audio.pause();
-        return;
-      }
-      this.hasStartedPlayback = true;
-      this.unbindGestureUnlock();
-      this.onPlaybackStateChange?.(true, false);
-      this.fadeVolumeTo(this.isMuted ? 0 : this.targetVolume, this.fadeInMs);
-    } catch {
-      // Bloqueado por política de Autoplay del navegador: se desbloqueará en la primera interacción
-      this.onPlaybackStateChange?.(false, true);
-    }
+    return this.audio
+      .play()
+      .then(() => {
+        if (this.isDisposed || !this.audio) {
+          this.audio?.pause();
+          return;
+        }
+        this.hasStartedPlayback = true;
+        this.unbindGestureUnlock();
+        this.onPlaybackStateChange?.(true, false);
+        this.fadeVolumeTo(this.isMuted ? 0 : this.targetVolume, this.fadeInMs);
+      })
+      .catch(() => {
+        // Autoplay bloqueado por políticas del navegador: los listeners globales desbloquearán el audio
+        this.onPlaybackStateChange?.(false, true);
+      });
   }
 
   /**
-   * Desbloquea e inicia la reproducción ante la primera interacción del usuario.
+   * Desbloquea e inicia la reproducción con fade-in ante la primera interacción del usuario.
    */
-  private readonly handleUserGesture = async () => {
+  private readonly handleUserGesture = () => {
     if (this.isDisposed || !this.audio || this.hasStartedPlayback || this.isFadingOut) return;
 
-    try {
-      this.audio.volume = 0;
-      this.audio.muted = this.isMuted;
-      await this.audio.play();
-      if (this.isDisposed) {
-        this.audio.pause();
-        return;
-      }
-      this.hasStartedPlayback = true;
-      this.unbindGestureUnlock();
-      this.onPlaybackStateChange?.(true, false);
-      this.fadeVolumeTo(this.isMuted ? 0 : this.targetVolume, this.fadeInMs);
-    } catch {
-      // Permanece en espera si el evento no fue considerado gesto válido por el navegador
-    }
+    this.audio.volume = 0;
+    this.audio.muted = this.isMuted;
+
+    this.audio
+      .play()
+      .then(() => {
+        if (this.isDisposed || !this.audio) {
+          this.audio?.pause();
+          return;
+        }
+        this.hasStartedPlayback = true;
+        this.unbindGestureUnlock();
+        this.onPlaybackStateChange?.(true, false);
+        this.fadeVolumeTo(this.isMuted ? 0 : this.targetVolume, this.fadeInMs);
+      })
+      .catch(() => {
+        // Si un primer evento no fue suficiente para desbloquear, el resto de eventos permanece activo
+        if (!this.hasStartedPlayback && !this.isDisposed && !this.isFadingOut) {
+          this.gestureListenersBound = false;
+          this.bindGestureUnlock();
+        }
+      });
   };
 
   private bindGestureUnlock(): void {
     if (this.gestureListenersBound || typeof window === 'undefined') return;
     this.gestureListenersBound = true;
-    window.addEventListener('pointerdown', this.handleUserGesture, { passive: true });
-    window.addEventListener('keydown', this.handleUserGesture, { passive: true });
+    for (const evt of UNLOCK_EVENTS) {
+      window.addEventListener(evt, this.handleUserGesture, {
+        once: true,
+        capture: true,
+        passive: true,
+      });
+    }
   }
 
   private unbindGestureUnlock(): void {
     if (!this.gestureListenersBound || typeof window === 'undefined') return;
     this.gestureListenersBound = false;
-    window.removeEventListener('pointerdown', this.handleUserGesture);
-    window.removeEventListener('keydown', this.handleUserGesture);
+    for (const evt of UNLOCK_EVENTS) {
+      window.removeEventListener(evt, this.handleUserGesture, { capture: true });
+    }
   }
 
   /**
