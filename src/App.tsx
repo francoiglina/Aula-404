@@ -40,7 +40,7 @@ export default function App() {
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<SchoolEngine | null>(null);
 
-  const [entryStage, setEntryStage] = useState<'title' | 'intro' | 'ready'>('title');
+  const [entryStage, setEntryStage] = useState<'title' | 'intro' | 'black_hold' | 'ready'>('title');
   const [isInitialized, setIsInitialized] = useState(false);
   const [phase, setPhase] = useState<GamePhase>('ESTADO_0');
   const [finalSubstate, setFinalSubstate] = useState<FinalSubstate>('pendiente');
@@ -373,12 +373,23 @@ export default function App() {
   }, []);
 
   const handleCompleteIntroLore = useCallback(() => {
-    setEntryStage('ready');
-    setIsInitialized(true);
-    soundEngine.startBgm(1.4);
-    lastNotifiedFloorRef.current = null;
-    showLocationNotice(1);
-  }, [showLocationNotice]);
+    // Tras el fade-out de la intro a negro, entra en pausa atmosférica de 4s con el 3D y HUD ya montados
+    setEntryStage('black_hold');
+  }, []);
+
+  // Pausa exacta de 4 segundos en #000000 antes del fade-in unificado de Escena 3D + HUD
+  useEffect(() => {
+    if (entryStage !== 'black_hold') return;
+    const holdTimer = window.setTimeout(() => {
+      setEntryStage('ready');
+      setIsInitialized(true);
+      soundEngine.startBgm(1.8);
+      lastNotifiedFloorRef.current = null;
+      showLocationNotice(1);
+    }, 4000);
+
+    return () => window.clearTimeout(holdTimer);
+  }, [entryStage, showLocationNotice]);
 
   /**
    * Se ejecuta en el instante exacto en que el usuario cierra el texto final del modal de diálogo/sensor:
@@ -490,98 +501,106 @@ export default function App() {
   const unlockedCluesCount = clues.filter((c) => c.unlocked).length;
   const activePhaseIndicator = getPhaseIndicator(phase, unlockedObjects, finalSubstate);
 
+  const isSceneHudMounted = entryStage === 'black_hold' || entryStage === 'ready';
+
   return (
-    <main className="font-sans relative h-full w-full overflow-hidden bg-stone-950 select-none">
-      {/* Dedicated Isolated WebGL Canvas Container */}
-      <div ref={canvasContainerRef} className="fixed inset-0 z-0 h-full w-full" />
+    <main className="font-sans relative h-full w-full overflow-hidden bg-black select-none">
+      {/* Contenedor padre unificado: Canvas 3D + todo el HUD comparten la misma capa de opacidad */}
+      <div
+        id="main-experience-stage"
+        className={entryStage === 'ready' ? 'is-revealed' : ''}
+      >
+        {/* Dedicated Isolated WebGL Canvas Container */}
+        <div ref={canvasContainerRef} className="fixed inset-0 z-0 h-full w-full" />
 
-      {/* Top Navigation & Enigmatic Phase HUD */}
-      {isInitialized && (
-        <TopSensorHud
-          floor={currentFloor}
-          zoneName={zoneName}
-          phaseIndicator={activePhaseIndicator}
-          unlockedCluesCount={unlockedCluesCount}
-          isMuted={isMuted}
-          onOpenMap={() => setMapModalTab('map')}
-          onOpenClues={() => setMapModalTab('clues')}
-          onOpenMarkers={() => setMapModalTab('markers')}
-          onToggleMute={() => {
-            const next = !isMuted;
-            setIsMuted(next);
-            soundEngine.setMuted(next);
-            if (!next) {
-              soundEngine.playConfirm();
-            }
-          }}
-        />
-      )}
-
-      {/* Dynamic Real-Time 2D Minimap (Top-Right Non-Obstructive Overlay) */}
-      {isInitialized &&
-        !activeDialogue &&
-        !activeChallenge &&
-        !mapModalTab &&
-        !showEndingModal && (
-          <MinimapHud
-            engineRef={engineRef}
+        {/* Top Navigation & Enigmatic Phase HUD */}
+        {isSceneHudMounted && (
+          <TopSensorHud
             floor={currentFloor}
-            phase={phase}
-            unlockedObjects={unlockedObjects}
-            finalSubstate={finalSubstate}
-            onOpenFullMap={() => setMapModalTab('map')}
+            zoneName={zoneName}
+            phaseIndicator={activePhaseIndicator}
+            unlockedCluesCount={unlockedCluesCount}
+            isMuted={isMuted}
+            onOpenMap={() => setMapModalTab('map')}
+            onOpenClues={() => setMapModalTab('clues')}
+            onOpenMarkers={() => setMapModalTab('markers')}
+            onToggleMute={() => {
+              const next = !isMuted;
+              setIsMuted(next);
+              soundEngine.setMuted(next);
+              if (!next) {
+                soundEngine.playConfirm();
+              }
+            }}
           />
         )}
 
-      {/* Minimalist J-Horror 3-Level Floor Notice (1F & 2F Only, Frameless) */}
-      {locationNotice &&
-        isInitialized &&
-        !clueBanner &&
-        !activeDialogue &&
-        !activeChallenge &&
-        !mapModalTab &&
-        !showEndingModal &&
-        !stairFadeOpaque && (
-          <LocationNotice
-            key={locationNotice.id}
-            floorTitle={locationNotice.floorTitle}
-          />
+        {/* Dynamic Real-Time 2D Minimap (Top-Right Non-Obstructive Overlay) */}
+        {isSceneHudMounted &&
+          !activeDialogue &&
+          !activeChallenge &&
+          !mapModalTab &&
+          !showEndingModal && (
+            <MinimapHud
+              engineRef={engineRef}
+              floor={currentFloor}
+              phase={phase}
+              unlockedObjects={unlockedObjects}
+              finalSubstate={finalSubstate}
+              onOpenFullMap={() => setMapModalTab('map')}
+            />
+          )}
+
+        {/* Minimalist J-Horror 3-Level Floor Notice (1F & 2F Only, Frameless) */}
+        {locationNotice &&
+          isInitialized &&
+          !clueBanner &&
+          !activeDialogue &&
+          !activeChallenge &&
+          !mapModalTab &&
+          !showEndingModal &&
+          !stairFadeOpaque && (
+            <LocationNotice
+              key={locationNotice.id}
+              floorTitle={locationNotice.floorTitle}
+            />
+          )}
+
+        {/* Minimalist J-Horror "NUEVA PISTA" Center Overlay */}
+        {clueBanner && isInitialized && (
+          <NewClueBanner key={clueBanner.id} clueText={clueBanner.text} />
         )}
 
-      {/* Minimalist J-Horror "NUEVA PISTA" Center Overlay */}
-      {clueBanner && isInitialized && (
-        <NewClueBanner key={clueBanner.id} clueText={clueBanner.text} />
-      )}
-
-      {/* Subtle Toast Notification */}
-      {toastMessage && isInitialized && (
-        <div className="pointer-events-none fixed top-16 left-1/2 -translate-x-1/2 z-30 px-4 w-full max-w-md flex justify-center">
-          <div className="rounded-xl border border-amber-500/40 bg-stone-950/94 px-3.5 py-2 text-xs font-medium text-stone-100 shadow-lg flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0" />
-            <span className="truncate">{toastMessage}</span>
+        {/* Subtle Toast Notification */}
+        {toastMessage && isInitialized && (
+          <div className="pointer-events-none fixed top-16 left-1/2 -translate-x-1/2 z-30 px-4 w-full max-w-md flex justify-center">
+            <div className="rounded-xl border border-amber-500/40 bg-stone-950/94 px-3.5 py-2 text-xs font-medium text-stone-100 shadow-lg flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0" />
+              <span className="truncate">{toastMessage}</span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Mobile Virtual Analog Stick (Left) & Single Interact Button (Right) */}
-      {isInitialized && !activeDialogue && !activeChallenge && !showEndingModal && (
-        <MobileControlsOverlay
-          nearbyMarker={nearbyMarker}
-          phaseIndicator={activePhaseIndicator}
-          cameraAllowed={cameraAllowed}
-          onMoveInput={(x, y) => engineRef.current?.setMoveInput(x, y)}
-          onInteract={handleOverlayInteract}
-          onResetCamera={() => {
-            engineRef.current?.resetCameraView();
-            showToast('Vista táctil centrada horizontalmente');
-          }}
-          onCapturePhoto={handleCapturePhoto}
-          onSwitchCamera={async () => {
-            const mode = await sensorService.toggleCameraFacing();
-            showToast(mode === 'user' ? 'Cámara frontal activa' : 'Cámara trasera activa');
-          }}
-        />
-      )}
+        {/* Mobile Virtual Analog Stick (Left) & Single Interact Button (Right) */}
+        {isSceneHudMounted && !activeDialogue && !activeChallenge && !showEndingModal && (
+          <MobileControlsOverlay
+            nearbyMarker={nearbyMarker}
+            phaseIndicator={activePhaseIndicator}
+            cameraAllowed={cameraAllowed}
+            onMoveInput={(x, y) => engineRef.current?.setMoveInput(x, y)}
+            onInteract={handleOverlayInteract}
+            onResetCamera={() => {
+              engineRef.current?.resetCameraView();
+              showToast('Vista táctil centrada horizontalmente');
+            }}
+            onCapturePhoto={handleCapturePhoto}
+            onSwitchCamera={async () => {
+              const mode = await sensorService.toggleCameraFacing();
+              showToast(mode === 'user' ? 'Cámara frontal activa' : 'Cámara trasera activa');
+            }}
+          />
+        )}
+      </div>
 
       {/* Character Portrait & Dialogue Box */}
       {activeDialogue && (

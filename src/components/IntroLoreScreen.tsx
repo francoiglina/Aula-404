@@ -42,12 +42,11 @@ export const IntroLoreScreen: React.FC<IntroLoreScreenProps> = ({
     isTypingCompleteRef.current = isTypingComplete;
   }, [isTypingComplete]);
 
-  // Fade-in suave de la interfaz y de opening.mp3 (0 -> 1 en 1.5s)
+  // Fade-in visual de la interfaz y arranque inmediato de opening.mp3 (volume = 1.0)
   useEffect(() => {
     const controller = new TitleAudioController({
       src: OPENING_LORE_AUDIO_URL,
       targetVolume: 1.0,
-      fadeInMs: 1500,
       initialMuted: isMuted,
     });
     audioControllerRef.current = controller;

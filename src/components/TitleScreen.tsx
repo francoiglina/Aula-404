@@ -121,11 +121,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
     []
   );
 
-  // Inicia el fade-in desde negro (1.8s) y prepara el audio loop title_screen
+  // Inicia el fade-in desde negro (1.8s) y reproduce title_screen.mp3 al instante en volumen 1.0
   useEffect(() => {
     const controller = new TitleAudioController({
-      targetVolume: 0.82,
-      fadeInMs: 2000,
+      targetVolume: 1.0,
       initialMuted: isMuted,
     });
     audioControllerRef.current = controller;
