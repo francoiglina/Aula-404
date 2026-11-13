@@ -10,6 +10,18 @@ import { soundEngine } from '../services/soundEngine';
 import { FinalSubstate, FloorNumber, GamePhase, WalkableRect, WorldMarker } from '../types';
 import { createGlbMarkerInstance, GlbMarkerInstance } from './Aula404MarkerViewer';
 import {
+  AparcabicicletasFoliageHandle,
+  LeafSeed,
+  loadAparcabicicletasLeafInstancing,
+} from './aparcabicicletasLeafSystem';
+import {
+  buildFloorCollisionData,
+  findValidWalkableZone,
+  FloorCollisionData,
+  PLAYER_COLLISION_RADIUS,
+  resolvePlayerMovement,
+} from './collisionSystem';
+import {
   createCeilingPlankTexture,
   createCharacterStandeeTexture,
   createConcreteBlockWallTexture,
@@ -84,7 +96,7 @@ export class SchoolEngine {
   private floor2Group = new THREE.Group();
   private markersById = new Map<string, MarkerVisual>();
   private hitProxies: THREE.Object3D[] = [];
-  private shoeLockerColliders: THREE.Box3[] = [];
+  private floorCollisions: Record<FloorNumber, FloorCollisionData> | null = null;
   private lastNotifiedFloor: FloorNumber | null = null;
   private raycaster = new THREE.Raycaster();
 
@@ -112,13 +124,9 @@ export class SchoolEngine {
   // Sensor-reactive 3D scene references
   private closetDoorPivot: THREE.Group | null = null;
   private leavesInstanced: THREE.InstancedMesh | null = null;
-  private leafSeeds: Array<{
-    angle: number;
-    radius: number;
-    height: number;
-    speed: number;
-    scatter: number;
-  }> = [];
+  private leafSeeds: LeafSeed[] = [];
+  private aparcabicicletasFoliageHandle: AparcabicicletasFoliageHandle | null = null;
+  private cancelLeafLoad: (() => void) | null = null;
   private windChimeGroup: THREE.Group | null = null;
   private hanakoMirrorMat: THREE.MeshStandardMaterial | null = null;
   private hanakoSealRing: THREE.Mesh | null = null;
@@ -148,6 +156,7 @@ export class SchoolEngine {
 
   private clock = new THREE.Clock();
   private frameId = 0;
+  private hasCompletedBoot = false;
 
   constructor(container: HTMLElement, callbacks: EngineCallbacks) {
     this.container = container;
@@ -161,7 +170,7 @@ export class SchoolEngine {
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || window.innerHeight;
 
-    this.camera = new THREE.PerspectiveCamera(68, width / height, 0.1, 160);
+    this.camera = new THREE.PerspectiveCamera(68, width / height, 0.15, 160);
     this.camera.position.copy(this.playerPos);
     soundEngine.attachCamera(this.camera);
 
@@ -198,13 +207,34 @@ export class SchoolEngine {
     this.setupLighting();
     this.buildSchoolArchitecture();
     this.applyArchitecturalPbrPass();
+    this.floorCollisions = {
+      1: buildFloorCollisionData(this.floor1Group, 1, WALKABLE_ZONES),
+      2: buildFloorCollisionData(this.floor2Group, 2, WALKABLE_ZONES),
+    };
     this.buildMarkers();
-    this.setFloor(1, [-1.5, 0, 6.0], 0, { silentFloorNotice: true });
-    this.updateSunShadowTracking();
     this.setupPostProcessing(width, height);
 
+    // Pre-compila ambos pisos (1F y 2F) y sus texturas/sombras durante el arranque
+    // para evitar tirones de compilación WebGL al subir las escaleras por primera vez.
+    this.floor1Group.visible = true;
+    this.floor2Group.visible = true;
+    this.updateSunShadowTracking();
+
     if (!this.isSoftwareGl) {
+      for (let i = 0; i < this.sharedTextures.length; i++) {
+        this.renderer.initTexture(this.sharedTextures[i]);
+      }
+      if (this.hanakoMirrorMat?.map) {
+        this.renderer.initTexture(this.hanakoMirrorMat.map);
+      }
       this.renderer.compile(this.scene, this.camera);
+      this.renderCurrentFrame();
+    }
+
+    this.setFloor(1, [-1.5, 0, 6.0], 0, { silentFloorNotice: true });
+    this.hasCompletedBoot = true;
+    if (!this.isSoftwareGl) {
+      this.renderCurrentFrame();
     }
 
     this.bindEvents();
@@ -520,6 +550,7 @@ export class SchoolEngine {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
     mesh.position.set(x, y, z);
     mesh.receiveShadow = !this.isSoftwareGl;
+    mesh.userData.colliderKind = 'wall';
     parent.add(mesh);
     return mesh;
   }
@@ -578,11 +609,13 @@ export class SchoolEngine {
       const pNorth = new THREE.Mesh(pillarGeo, mats.cedarTimberMat);
       pNorth.position.set(px, wallH / 2, -2.3);
       pNorth.castShadow = !this.isSoftwareGl;
+      pNorth.userData.colliderKind = 'pillar';
       group.add(pNorth);
 
       const pSouth = new THREE.Mesh(pillarGeo, mats.cedarTimberMat);
       pSouth.position.set(px, wallH / 2, 2.3);
       pSouth.castShadow = !this.isSoftwareGl;
+      pSouth.userData.colliderKind = 'pillar';
       group.add(pSouth);
     }
 
@@ -631,7 +664,6 @@ export class SchoolEngine {
         roughness: 0.58,
         envMapIntensity: 0.35,
       });
-      this.shoeLockerColliders = [];
       const bodyW = 1.1;
       const bodyH = 1.75;
       const bodyD = 3.4;
@@ -643,24 +675,19 @@ export class SchoolEngine {
         body.position.y = bodyH / 2;
         body.castShadow = !this.isSoftwareGl;
         body.receiveShadow = !this.isSoftwareGl;
+        body.userData.colliderKind = 'furniture';
         island.add(body);
 
         const cap = new THREE.Mesh(new THREE.BoxGeometry(bodyW + 0.06, 0.08, bodyD + 0.06), lockerTopMat);
         cap.position.y = 1.79;
+        cap.userData.noCollision = true;
         island.add(cap);
 
         const plinth = new THREE.Mesh(new THREE.BoxGeometry(bodyW - 0.04, 0.1, bodyD - 0.06), mats.cedarTimberMat);
         plinth.position.y = 0.05;
+        plinth.userData.noCollision = true;
         island.add(plinth);
         group.add(island);
-
-        // Tight THREE.Box3 adjusted strictly to real visual bounds (no Z/X phantom expansion)
-        this.shoeLockerColliders.push(
-          new THREE.Box3(
-            new THREE.Vector3(lx - bodyW * 0.5, 0, 5.0 - bodyD * 0.5),
-            new THREE.Vector3(lx + bodyW * 0.5, bodyH, 5.0 + bodyD * 0.5)
-          )
-        );
       });
     } else {
       // 2F North Wall con los mismos vanos de ventana + Center-South Corridor Wall
@@ -910,6 +937,7 @@ export class SchoolEngine {
     const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(width, height), glassMat);
     backdrop.position.set(0, height / 2, 0.05);
     backdrop.rotation.y = Math.PI;
+    backdrop.userData.noCollision = true;
     entrance.add(backdrop);
 
     const mullionCount = 6;
@@ -917,11 +945,13 @@ export class SchoolEngine {
       const mx = -width / 2 + (i / mullionCount) * width;
       const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, height, 0.16), frameMat);
       bar.position.set(mx, height / 2, 0);
+      bar.userData.colliderKind = 'pillar';
       entrance.add(bar);
     }
 
     const crossBar = new THREE.Mesh(new THREE.BoxGeometry(width, 0.12, 0.16), frameMat);
     crossBar.position.set(0, 2.3, 0);
+    crossBar.userData.noCollision = true;
     entrance.add(crossBar);
 
     group.add(entrance);
@@ -930,6 +960,7 @@ export class SchoolEngine {
   private addCorridorWindows(group: THREE.Group, x: number, z: number, frameMat: THREE.Material) {
     const winGroup = new THREE.Group();
     winGroup.position.set(x, 1.9, z);
+    winGroup.userData.noCollision = true;
 
     const winW = 3.74;
     const winH = 1.44;
@@ -1057,6 +1088,7 @@ export class SchoolEngine {
         frameMat
       );
       portalFrame.position.set(0, 1.26, 0.005);
+      portalFrame.userData.noCollision = true;
       doorGroup.add(portalFrame);
 
       const interiorGlow = new THREE.Mesh(
@@ -1069,27 +1101,32 @@ export class SchoolEngine {
         })
       );
       interiorGlow.position.set(0, 1.225, 0.022);
+      interiorGlow.userData.noCollision = true;
       doorGroup.add(interiorGlow);
     }
 
     const panel = new THREE.Mesh(new THREE.BoxGeometry(1.65, 2.45, 0.06), doorMat);
     panel.position.set(0, 1.225, isDestinationDoor ? 0.055 : 0.02);
+    panel.userData.colliderKind = 'door';
     doorGroup.add(panel);
 
     // Brazo y soporte colgante perpendicular al pasillo con tablón de madera de doble cara legible
     const signArm = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.62), frameMat);
     signArm.position.set(1.05, 2.55, 0.31);
+    signArm.userData.noCollision = true;
     doorGroup.add(signArm);
 
     [0.2, 0.5].forEach((hz) => {
       const hanger = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.09, 0.024), frameMat);
       hanger.position.set(1.05, 2.49, hz);
+      hanger.userData.noCollision = true;
       doorGroup.add(hanger);
     });
 
     const signBoard = this.createWoodenSignBoard(label, 0.68, 0.23, 0.036, maxAniso, frameMat);
     signBoard.position.set(1.05, 2.35, 0.35);
     signBoard.rotation.y = Math.PI / 2;
+    signBoard.userData.noCollision = true;
     doorGroup.add(signBoard);
 
     if (isDestinationDoor) {
@@ -1113,6 +1150,7 @@ export class SchoolEngine {
       thresholdRing.position.set(0, 0.022, 0.42);
       thresholdRing.visible = false;
       thresholdRing.userData.isInteractiveMarker = true;
+      thresholdRing.userData.noCollision = true;
       doorGroup.add(thresholdRing);
       this.destDoorThresholdRing = thresholdRing;
 
@@ -1122,7 +1160,11 @@ export class SchoolEngine {
         new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })
       );
       doorHitBox.position.set(0, 1.32, 0.25);
-      doorHitBox.userData = { markerId: 'puerta_aula_destino', isDestinationDoor: true };
+      doorHitBox.userData = {
+        markerId: 'puerta_aula_destino',
+        isDestinationDoor: true,
+        noCollision: true,
+      };
       doorGroup.add(doorHitBox);
     }
 
@@ -1146,22 +1188,26 @@ export class SchoolEngine {
     // Header lintel above open doorway
     const lintel = new THREE.Mesh(new THREE.BoxGeometry(corridorWidth, 0.85, 0.28), frameMat);
     lintel.position.set(0, wallH - 0.425, 0);
+    lintel.userData.noCollision = true;
     arch.add(lintel);
 
     // Slid-open wooden hikido door tucked to one side (sin textos sobre la hoja)
     const slidDoor = new THREE.Mesh(new THREE.BoxGeometry(1.3, 2.6, 0.08), doorMat);
     slidDoor.position.set(-corridorWidth / 2 + 0.72, 1.3, 0.14);
+    slidDoor.userData.colliderKind = 'door';
     arch.add(slidDoor);
 
     // Cartel colgante de madera suspendido bajo el dintel (legible de frente y desde el interior sin espejo)
     [-0.24, 0.68].forEach((hx) => {
       const hanger = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.14, 0.036), frameMat);
       hanger.position.set(hx, 2.64, 0);
+      hanger.userData.noCollision = true;
       arch.add(hanger);
     });
 
     const signBoard = this.createWoodenSignBoard(title, 1.54, 0.36, 0.04, maxAniso, frameMat);
     signBoard.position.set(0.22, 2.45, 0);
+    signBoard.userData.noCollision = true;
     arch.add(signBoard);
 
     group.add(arch);
@@ -1184,25 +1230,35 @@ export class SchoolEngine {
     const pocket = new THREE.Group();
     pocket.position.set(centerX, 0, 0);
 
+    // Materiales coherentes en madera oscura envejecida (sin caras coplanares ni Z-fighting)
     const riserMat = new THREE.MeshStandardMaterial({
-      color: '#7c857d',
-      roughness: 0.9,
-      metalness: 0.02,
-      envMapIntensity: 0.25,
+      color: '#241f18',
+      roughness: 0.78,
+      metalness: 0.03,
+      envMapIntensity: 0.28,
+    });
+    const nosingMat = new THREE.MeshStandardMaterial({
+      color: '#342b21',
+      roughness: 0.62,
+      metalness: 0.05,
+      envMapIntensity: 0.34,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
     });
 
     if (floor === 1) {
       // 1F -> Escalera escolar realista de 18 peldaños (9 + descanso intermedio + 9)
-      // conectando hasta el nivel del 2° piso (y = 3.78m) con desembarco abierto lateral sin choque contra pared.
+      // conectando hasta el nivel del 2° piso (y = 3.78m) con desembarco abierto lateral sin Z-fighting.
       const slabThickness = 0.28;
       const upperFloorY = wallH + slabThickness; // 3.78m
       const upperCeilY = upperFloorY + wallH; // 7.28m
-      const openSide = centerX < 0 ? 1 : -1; // Se abre hacia el interior del edificio (+X en Oeste, -X en Este)
+      const openSide = centerX < 0 ? 1 : -1;
 
-      // Descanso inferior de arranque en planta baja (z = 2.0 .. 3.95, alineado con el collider maxZ = 3.9 y marcador en z = 2.9)
-      const entryLanding = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.95), mats.roomFloorMat);
+      // Descanso inferior de arranque en planta baja (z = 2.40 .. 3.95, sin solapar mainFloor en z <= 2.40)
+      const entryLanding = new THREE.Mesh(new THREE.PlaneGeometry(3.16, 1.55), mats.roomFloorMat);
       entryLanding.rotation.x = -Math.PI / 2;
-      entryLanding.position.set(0, 0.004, 2.975);
+      entryLanding.position.set(0, 0.002, 3.175);
       entryLanding.receiveShadow = !this.isSoftwareGl;
       pocket.add(entryLanding);
 
@@ -1212,40 +1268,53 @@ export class SchoolEngine {
       stairwellCeil.position.set(0, upperCeilY, 7.675);
       pocket.add(stairwellCeil);
 
-      // Dintel de losa en el umbral del corredor 1F (z = 2.4) y muro frontal superior sobre el hueco (y = 3.78 .. 7.28)
-      const entranceHeader = new THREE.Mesh(new THREE.BoxGeometry(3.4, slabThickness, 0.26), mats.cedarTimberMat);
+      // Dintel de losa en el umbral del corredor 1F (z = 2.4) y muro frontal superior separado por 5mm
+      const entranceHeader = new THREE.Mesh(
+        new THREE.BoxGeometry(3.4, slabThickness - 0.006, 0.26),
+        mats.cedarTimberMat
+      );
       entranceHeader.position.set(0, wallH + slabThickness * 0.5, 2.4);
       pocket.add(entranceHeader);
-      this.addBoxWall(pocket, 0, upperFloorY + wallH * 0.5, 2.4, 3.64, wallH, 0.24, mats.wallShortMat);
+      this.addBoxWall(
+        pocket,
+        0,
+        upperFloorY + wallH * 0.5,
+        2.4,
+        3.64,
+        wallH - 0.006,
+        0.24,
+        mats.wallShortMat
+      );
 
-      // Muros laterales en 1F (y = 0 .. 3.5) + viga de entrepiso en madera oscura (y = 3.5 .. 3.78)
-      this.addBoxWall(pocket, -1.7, wallH * 0.5, 7.675, 0.24, wallH, 10.75, mats.wallShortMat);
-      this.addBoxWall(pocket, 1.7, wallH * 0.5, 7.675, 0.24, wallH, 10.75, mats.wallShortMat);
+      // Muros laterales en 1F (y = 0 .. 3.495), viga de entrepiso (3.50 .. 3.775) y muros 2F (3.78 .. 7.28)
+      this.addBoxWall(pocket, -1.7, (wallH - 0.005) * 0.5, 7.675, 0.24, wallH - 0.005, 10.75, mats.wallShortMat);
+      this.addBoxWall(pocket, 1.7, (wallH - 0.005) * 0.5, 7.675, 0.24, wallH - 0.005, 10.75, mats.wallShortMat);
       [-1.7, 1.7].forEach((wx) => {
-        const slabBand = new THREE.Mesh(new THREE.BoxGeometry(0.26, slabThickness, 10.75), mats.cedarTimberMat);
+        const slabBand = new THREE.Mesh(
+          new THREE.BoxGeometry(0.26, slabThickness - 0.006, 10.75),
+          mats.cedarTimberMat
+        );
         slabBand.position.set(wx, wallH + slabThickness * 0.5, 7.675);
         pocket.add(slabBand);
       });
 
-      // Muro lateral exterior en nivel 2F (cerrado completo)
       this.addBoxWall(
         pocket,
         -openSide * 1.7,
         upperFloorY + wallH * 0.5,
         7.675,
         0.24,
-        wallH,
+        wallH - 0.004,
         10.75,
         mats.wallShortMat
       );
-      // Muro lateral interior en nivel 2F: llega hasta z = 10.19 para dejar abierta la galería/desembarco superior
       this.addBoxWall(
         pocket,
         openSide * 1.7,
         upperFloorY + wallH * 0.5,
         6.245,
         0.24,
-        wallH,
+        wallH - 0.004,
         7.89,
         mats.wallShortMat
       );
@@ -1263,60 +1332,84 @@ export class SchoolEngine {
       const zTopEnd = zUpperStart + flightRun; // 10.19m
       const diagLen = Math.hypot(flightRun, flightRise);
       const slopeAngle = Math.atan2(flightRise, flightRun);
-      const railX = 1.42;
+      const railX = 1.44; // Estrictamente fuera del ancho de huella (2.78m -> ±1.39m) para cero intersecciones
+
+      const treadThick = 0.042;
+      const riserThick = 0.036;
 
       const buildAscendingFlight = (baseZ: number, baseY: number) => {
         for (let s = 0; s < stepsPerFlight; s++) {
           const yTop = baseY + (s + 1) * stepRise;
-          const zCenter = baseZ + (s + 0.5) * stepRun;
+          const zStepFront = baseZ + s * stepRun;
+          const zStepBack = zStepFront + stepRun;
+          const isLastStep = s === stepsPerFlight - 1;
 
+          // 1. Contrahuella vertical retrasada 2.4cm respecto al borde frontal de la huella (cero caras coplanares)
+          const riserHeight = stepRise - 0.036;
+          const riserBottomY = baseY + s * stepRise - (s === 0 ? 0 : 0.004);
+          const riser = new THREE.Mesh(
+            new THREE.BoxGeometry(2.72, riserHeight, riserThick),
+            riserMat
+          );
+          riser.position.set(
+            0,
+            riserBottomY + riserHeight * 0.5,
+            zStepFront + riserThick * 0.5
+          );
+          riser.receiveShadow = !this.isSoftwareGl;
+          pocket.add(riser);
+
+          // 2. Huella horizontal con vuelo frontal de 2.4cm y entrega limpia hacia la siguiente contrahuella
+          const treadFrontZ = zStepFront - 0.024;
+          const treadBackZ = isLastStep ? zStepBack : zStepBack + 0.016;
+          const treadDepth = treadBackZ - treadFrontZ;
           const tread = new THREE.Mesh(
-            new THREE.BoxGeometry(2.96, 0.055, stepRun + 0.04),
+            new THREE.BoxGeometry(2.78, treadThick, treadDepth),
             mats.stairTreadMat
           );
-          tread.position.set(0, yTop - 0.0275, zCenter);
+          tread.position.set(
+            0,
+            yTop - treadThick * 0.5,
+            treadFrontZ + treadDepth * 0.5
+          );
           tread.receiveShadow = !this.isSoftwareGl;
           tread.castShadow = !this.isSoftwareGl;
           pocket.add(tread);
 
+          // 3. Cantonera antideslizante elevada 6mm sobre la huella y 5mm delante del borde (cero Z-fighting)
           const nosing = new THREE.Mesh(
-            new THREE.BoxGeometry(3.0, 0.026, 0.036),
-            mats.cedarTimberMat
+            new THREE.BoxGeometry(2.76, 0.012, 0.028),
+            nosingMat
           );
-          nosing.position.set(0, yTop - 0.013, zCenter - stepRun * 0.5);
+          nosing.position.set(0, yTop + 0.001, zStepFront - 0.015);
           pocket.add(nosing);
-
-          const riser = new THREE.Mesh(new THREE.BoxGeometry(2.92, stepRise, 0.04), riserMat);
-          riser.position.set(0, yTop - stepRise * 0.5, zCenter - stepRun * 0.5);
-          riser.receiveShadow = !this.isSoftwareGl;
-          pocket.add(riser);
         }
 
-        // Losa inferior inclinada bajo los peldaños para solidez arquitectónica
+        // Losa inclinada estructural hundida 0.22m bajo los peldaños para nunca atravesar huellas/contrahuellas
         const soffit = new THREE.Mesh(
-          new THREE.BoxGeometry(2.94, 0.14, diagLen + 0.08),
+          new THREE.BoxGeometry(2.74, 0.12, diagLen + 0.06),
           mats.cedarTimberMat
         );
-        soffit.position.set(0, baseY + flightRise * 0.5 - 0.14, baseZ + flightRun * 0.5);
+        soffit.position.set(0, baseY + flightRise * 0.5 - 0.22, baseZ + flightRun * 0.5);
         soffit.rotation.x = -slopeAngle;
         pocket.add(soffit);
 
-        // Zancas, postes maestros, pasamanos y balaustres en madera envejecida oscura
+        // Zancas, postes maestros, pasamanos y balaustres en madera oscura fuera del ancho de peldaños
         [-railX, railX].forEach((rx) => {
           const stringer = new THREE.Mesh(
-            new THREE.BoxGeometry(0.11, 0.26, diagLen + 0.14),
+            new THREE.BoxGeometry(0.1, 0.24, diagLen + 0.14),
             mats.cedarTimberMat
           );
-          stringer.position.set(rx * 1.03, baseY + flightRise * 0.5 - 0.07, baseZ + flightRun * 0.5);
+          stringer.position.set(rx * 1.03, baseY + flightRise * 0.5 - 0.11, baseZ + flightRun * 0.5);
           stringer.rotation.x = -slopeAngle;
           stringer.castShadow = !this.isSoftwareGl;
           pocket.add(stringer);
 
-          const postBottom = new THREE.Mesh(new THREE.BoxGeometry(0.11, 1.02, 0.11), mats.cedarTimberMat);
+          const postBottom = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.02, 0.1), mats.cedarTimberMat);
           postBottom.position.set(rx, baseY + 0.51, baseZ - 0.04);
           pocket.add(postBottom);
 
-          const postTop = new THREE.Mesh(new THREE.BoxGeometry(0.11, 1.02, 0.11), mats.cedarTimberMat);
+          const postTop = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.02, 0.1), mats.cedarTimberMat);
           postTop.position.set(rx, baseY + flightRise + 0.51, baseZ + flightRun + 0.04);
           pocket.add(postTop);
 
@@ -1340,34 +1433,33 @@ export class SchoolEngine {
       // Primer tramo (peldaños 1..9)
       buildAscendingFlight(zStart, 0);
 
-      // Descanso intermedio (y = 1.89m, z = 6.47 .. 7.67) con base estructural cerrada
-      const midLandingCenterZ = zMidStart + midLandingDepth * 0.5;
+      // Descanso intermedio (y = 1.89m, z = 6.473 .. 7.686) sin solaparse con el peldaño 9 ni el 10
+      const midDeckStartZ = zMidStart + 0.003;
+      const midDeckEndZ = zUpperStart + 0.016;
+      const midDeckDepth = midDeckEndZ - midDeckStartZ;
+      const midLandingCenterZ = midDeckStartZ + midDeckDepth * 0.5;
       const midLandingDeck = new THREE.Mesh(
-        new THREE.BoxGeometry(3.2, 0.18, midLandingDepth + 0.06),
+        new THREE.BoxGeometry(3.14, 0.16, midDeckDepth),
         mats.stairTreadMat
       );
-      midLandingDeck.position.set(0, flightRise - 0.09, midLandingCenterZ);
+      midLandingDeck.position.set(0, flightRise - 0.08, midLandingCenterZ);
       midLandingDeck.receiveShadow = !this.isSoftwareGl;
       pocket.add(midLandingDeck);
 
-      const midFrontNosing = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.03, 0.05), mats.cedarTimberMat);
-      midFrontNosing.position.set(0, flightRise - 0.015, zMidStart);
-      pocket.add(midFrontNosing);
-
+      const underMidHeight = flightRise - 0.17;
       const underMidWall = new THREE.Mesh(
-        new THREE.BoxGeometry(3.18, flightRise, 0.22),
+        new THREE.BoxGeometry(3.14, underMidHeight, 0.22),
         mats.cedarTimberMat
       );
-      underMidWall.position.set(0, flightRise * 0.5, zMidStart + 0.09);
+      underMidWall.position.set(0, underMidHeight * 0.5, zMidStart + 0.14);
       pocket.add(underMidWall);
 
-      // Barandas horizontales del descanso intermedio
       [-railX, railX].forEach((rx) => {
         const midRail = new THREE.Mesh(
           new THREE.BoxGeometry(0.08, 0.055, midLandingDepth - 0.04),
           mats.cedarTimberMat
         );
-        midRail.position.set(rx, flightRise + 0.96, midLandingCenterZ);
+        midRail.position.set(rx, flightRise + 0.96, zMidStart + midLandingDepth * 0.5);
         pocket.add(midRail);
 
         [0.33, 0.67].forEach((t) => {
@@ -1380,61 +1472,55 @@ export class SchoolEngine {
       // Segundo tramo (peldaños 10..18 -> y = 1.89m .. 3.78m)
       buildAscendingFlight(zUpperStart, flightRise);
 
-      // Base cerrada bajo el desembarco superior (z = 10.29, y = 0 .. 3.50) ajustada bajo la losa 2F
+      // Base cerrada bajo el desembarco superior (y = 0 .. 3.49m, estrictamente por debajo de la losa 2F)
+      const underTopHeight = wallH - 0.01;
       const underTopWall = new THREE.Mesh(
-        new THREE.BoxGeometry(3.18, wallH, 0.24),
+        new THREE.BoxGeometry(3.14, underTopHeight, 0.24),
         mats.cedarTimberMat
       );
-      underTopWall.position.set(0, wallH * 0.5, zTopEnd + 0.1);
+      underTopWall.position.set(0, underTopHeight * 0.5, zTopEnd + 0.15);
       pocket.add(underTopWall);
 
-      // Zócalos laterales de madera oscura en descanso intermedio y desembarco superior
-      [-1.56, 1.56].forEach((bx) => {
+      [-1.55, 1.55].forEach((bx) => {
         const midBaseboard = new THREE.Mesh(
-          new THREE.BoxGeometry(0.05, 0.14, midLandingDepth),
+          new THREE.BoxGeometry(0.045, 0.14, midLandingDepth - 0.04),
           mats.cedarTimberMat
         );
-        midBaseboard.position.set(bx, flightRise + 0.07, midLandingCenterZ);
+        midBaseboard.position.set(bx, flightRise + 0.072, zMidStart + midLandingDepth * 0.5);
         pocket.add(midBaseboard);
       });
 
-      // Desembarco superior en nivel 2° Piso (y = 3.78m, z = 10.19 .. 12.95)
-      const topLandingDepth = 2.76;
-      const topLandingCenterZ = zTopEnd + topLandingDepth * 0.5; // 11.57m
+      // Desembarco superior en nivel 2° Piso (y = 3.78m, z = 10.193 .. 12.95)
+      const topLandingDepth = 2.757;
+      const topLandingCenterZ = zTopEnd + 0.003 + topLandingDepth * 0.5;
       const topLandingSlab = new THREE.Mesh(
-        new THREE.BoxGeometry(3.4, slabThickness, topLandingDepth + 0.08),
+        new THREE.BoxGeometry(3.16, slabThickness - 0.006, topLandingDepth),
         mats.cedarTimberMat
       );
-      topLandingSlab.position.set(0, upperFloorY - slabThickness * 0.5, topLandingCenterZ);
+      topLandingSlab.position.set(0, upperFloorY - slabThickness * 0.5 - 0.003, topLandingCenterZ);
       pocket.add(topLandingSlab);
 
       const topLandingFloor = new THREE.Mesh(
-        new THREE.PlaneGeometry(3.4, topLandingDepth + 0.04),
+        new THREE.PlaneGeometry(3.16, topLandingDepth),
         mats.roomFloorMat
       );
       topLandingFloor.rotation.x = -Math.PI / 2;
-      topLandingFloor.position.set(0, upperFloorY + 0.004, topLandingCenterZ);
+      topLandingFloor.position.set(0, upperFloorY + 0.002, topLandingCenterZ);
       topLandingFloor.receiveShadow = !this.isSoftwareGl;
       pocket.add(topLandingFloor);
 
-      // Remate de madera en el borde superior del último peldaño
-      const topNosing = new THREE.Mesh(new THREE.BoxGeometry(3.04, 0.032, 0.055), mats.cedarTimberMat);
-      topNosing.position.set(0, upperFloorY - 0.012, zTopEnd);
-      pocket.add(topNosing);
-
-      // Pasamanos corto de remate en el lado cerrado del desembarco superior
       const outerSideX = -openSide * railX;
       const topReturnRail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.055, 1.35), mats.cedarTimberMat);
       topReturnRail.position.set(outerSideX, upperFloorY + 0.96, zTopEnd + 0.68);
       pocket.add(topReturnRail);
 
-      const topReturnPost = new THREE.Mesh(new THREE.BoxGeometry(0.11, 1.02, 0.11), mats.cedarTimberMat);
+      const topReturnPost = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.02, 0.1), mats.cedarTimberMat);
       topReturnPost.position.set(outerSideX, upperFloorY + 0.51, zTopEnd + 1.32);
       pocket.add(topReturnPost);
 
-      // Abertura arquitectónica hacia el pasillo superior del 2° Piso (x = openSide * 1.7 .. openSide * 6.5)
+      // Abertura arquitectónica hacia el pasillo superior del 2° Piso
       const archPillar = new THREE.Mesh(
-        new THREE.BoxGeometry(0.26, wallH, 0.26),
+        new THREE.BoxGeometry(0.26, wallH - 0.006, 0.26),
         mats.cedarTimberMat
       );
       archPillar.position.set(openSide * 1.7, upperFloorY + wallH * 0.5, zTopEnd);
@@ -1447,14 +1533,14 @@ export class SchoolEngine {
       archLintel.position.set(openSide * 1.7, upperCeilY - 0.36, topLandingCenterZ);
       pocket.add(archLintel);
 
-      // Galería / corredor superior visible al terminar los 18 escalones (elimina el muro de choque)
+      // Galería / corredor superior visible al terminar los 18 escalones
       const galleryLen = 4.8;
-      const galleryCenterX = openSide * (1.7 + galleryLen * 0.5);
+      const galleryCenterX = openSide * (1.704 + galleryLen * 0.5);
       const gallerySlab = new THREE.Mesh(
-        new THREE.BoxGeometry(galleryLen, slabThickness, topLandingDepth + 0.12),
+        new THREE.BoxGeometry(galleryLen, slabThickness - 0.006, topLandingDepth),
         mats.cedarTimberMat
       );
-      gallerySlab.position.set(galleryCenterX, upperFloorY - slabThickness * 0.5, topLandingCenterZ);
+      gallerySlab.position.set(galleryCenterX, upperFloorY - slabThickness * 0.5 - 0.003, topLandingCenterZ);
       pocket.add(gallerySlab);
 
       const galleryFloor = new THREE.Mesh(
@@ -1462,7 +1548,7 @@ export class SchoolEngine {
         mats.roomFloorMat
       );
       galleryFloor.rotation.x = -Math.PI / 2;
-      galleryFloor.position.set(galleryCenterX, upperFloorY + 0.004, topLandingCenterZ);
+      galleryFloor.position.set(galleryCenterX, upperFloorY + 0.002, topLandingCenterZ);
       galleryFloor.receiveShadow = !this.isSoftwareGl;
       pocket.add(galleryFloor);
 
@@ -1474,14 +1560,13 @@ export class SchoolEngine {
       galleryCeil.position.set(galleryCenterX, upperCeilY, topLandingCenterZ);
       pocket.add(galleryCeil);
 
-      // Muros frontal, trasero y fondo de la galería 2F
       this.addBoxWall(
         pocket,
         galleryCenterX,
         upperFloorY + wallH * 0.5,
         zTopEnd - 0.08,
         galleryLen,
-        wallH,
+        wallH - 0.004,
         0.24,
         mats.wallShortMat
       );
@@ -1491,7 +1576,7 @@ export class SchoolEngine {
         upperFloorY + wallH * 0.5,
         13.05,
         galleryLen,
-        wallH,
+        wallH - 0.004,
         0.24,
         mats.wallShortMat
       );
@@ -1501,31 +1586,29 @@ export class SchoolEngine {
         upperFloorY + wallH * 0.5,
         topLandingCenterZ,
         0.24,
-        wallH,
+        wallH - 0.004,
         topLandingDepth + 0.24,
         mats.wallShortMat
       );
 
-      // Puerta corrediza escolar de madera al fondo de la galería superior 2F (refuerza la continuidad del 2° piso)
       const upperEndDoor = new THREE.Mesh(
         new THREE.BoxGeometry(0.06, 2.45, 1.65),
         mats.slidingDoorMat
       );
       upperEndDoor.position.set(
-        openSide * (1.7 + galleryLen - 0.14),
-        upperFloorY + 1.225,
+        openSide * (1.7 + galleryLen - 0.16),
+        upperFloorY + 1.227,
         topLandingCenterZ
       );
       pocket.add(upperEndDoor);
 
       const upperBaseboard = new THREE.Mesh(
-        new THREE.BoxGeometry(0.05, 0.14, topLandingDepth),
+        new THREE.BoxGeometry(0.045, 0.14, topLandingDepth - 0.06),
         mats.cedarTimberMat
       );
-      upperBaseboard.position.set(-openSide * 1.56, upperFloorY + 0.07, topLandingCenterZ);
+      upperBaseboard.position.set(-openSide * 1.55, upperFloorY + 0.072, topLandingCenterZ);
       pocket.add(upperBaseboard);
 
-      // Plafón fluorescente suave en el corredor superior 2F para dar profundidad al mirar hacia arriba
       const upperLamp = new THREE.Mesh(
         new THREE.BoxGeometry(1.25, 0.07, 0.3),
         new THREE.MeshStandardMaterial({
@@ -1540,13 +1623,13 @@ export class SchoolEngine {
 
       // Muro posterior del hueco de escalera (z = 13.05) con ventanal alto escolar japonés
       const backZ = 13.05;
-      this.addBoxWall(pocket, 0, 2.275, backZ, 3.64, 4.55, 0.24, mats.wallShortMat);
-      this.addBoxWall(pocket, 0, 6.965, backZ, 3.64, 0.63, 0.24, mats.wallShortMat);
-      this.addBoxWall(pocket, -1.35, 5.6, backZ, 0.94, 2.1, 0.24, mats.wallShortMat);
-      this.addBoxWall(pocket, 1.35, 5.6, backZ, 0.94, 2.1, 0.24, mats.wallShortMat);
+      this.addBoxWall(pocket, 0, 2.272, backZ, 3.64, 4.545, 0.24, mats.wallShortMat);
+      this.addBoxWall(pocket, 0, 6.965, backZ, 3.64, 0.625, 0.24, mats.wallShortMat);
+      this.addBoxWall(pocket, -1.35, 5.6, backZ, 0.94, 2.09, 0.24, mats.wallShortMat);
+      this.addBoxWall(pocket, 1.35, 5.6, backZ, 0.94, 2.09, 0.24, mats.wallShortMat);
 
       const stairWinW = 1.76;
-      const stairWinH = 2.1;
+      const stairWinH = 2.09;
       const stairWinY = 5.6;
       const winGlassMat = new THREE.MeshStandardMaterial({
         color: '#8faab0',
@@ -1562,7 +1645,6 @@ export class SchoolEngine {
       winPane.rotation.y = Math.PI;
       pocket.add(winPane);
 
-      // Montantes y travesaños de madera oscura en el ventanal de la escalera
       [-0.86, 0, 0.86].forEach((mx) => {
         const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.06, stairWinH, 0.12), mats.cedarTimberMat);
         vBar.position.set(mx, stairWinY, backZ - 0.03);
@@ -1574,7 +1656,6 @@ export class SchoolEngine {
         pocket.add(hBar);
       });
 
-      // Luz atmosférica fría desde el ventanal y desembarco superior iluminando todo el recorrido
       const stairWindowLight = new THREE.PointLight('#8ab0c4', 1.15, 16);
       stairWindowLight.position.set(0, 5.6, 11.4);
       pocket.add(stairWindowLight);
@@ -1583,33 +1664,33 @@ export class SchoolEngine {
       upperHallLight.position.set(openSide * 2.8, upperFloorY + 2.4, topLandingCenterZ);
       pocket.add(upperHallLight);
     } else {
-      // 2F -> Descanso superior alineado exactamente hasta el inicio del tiro descendente (z = 3.95)
-      const landing = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.95), mats.roomFloorMat);
+      // 2F -> Descanso superior alineado exactamente hasta el inicio del tiro descendente (z = 2.40 .. 3.95)
+      const landing = new THREE.Mesh(new THREE.PlaneGeometry(3.16, 1.55), mats.roomFloorMat);
       landing.rotation.x = -Math.PI / 2;
-      landing.position.set(0, 0.004, 2.975);
+      landing.position.set(0, 0.002, 3.175);
       landing.receiveShadow = !this.isSoftwareGl;
       pocket.add(landing);
 
-      const ceil = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 5.4), mats.ceilingMat);
+      const ceil = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 5.6), mats.ceilingMat);
       ceil.rotation.x = Math.PI / 2;
-      ceil.position.set(0, wallH + 1.2, 4.7);
+      ceil.position.set(0, wallH + 1.2, 5.1);
       pocket.add(ceil);
 
-      // Paredes superiores del hueco de escalera (y = 0 .. 4.7 para alinear zócalo/lambrín con el pasillo)
-      this.addBoxWall(pocket, -1.7, (wallH + 1.2) / 2, 4.7, 0.24, wallH + 1.2, 4.8, mats.wallShortMat);
-      this.addBoxWall(pocket, 1.7, (wallH + 1.2) / 2, 4.7, 0.24, wallH + 1.2, 4.8, mats.wallShortMat);
-      this.addBoxWall(pocket, 0, (wallH + 1.2) / 2, 7.0, 3.6, wallH + 1.2, 0.24, mats.wallShortMat);
+      // Paredes superiores del hueco de escalera (y = 0.004 .. 4.7)
+      this.addBoxWall(pocket, -1.7, 2.352, 5.05, 0.24, 4.695, 5.5, mats.wallShortMat);
+      this.addBoxWall(pocket, 1.7, 2.352, 5.05, 0.24, 4.695, 5.5, mats.wallShortMat);
+      this.addBoxWall(pocket, 0, 2.352, 7.75, 3.6, 4.695, 0.24, mats.wallShortMat);
 
       const stepCount = 10;
       const stepRise = 0.22;
       const stepRun = 0.28;
       const zStart = 3.95;
-      const totalRun = stepCount * stepRun; // 2.80m
+      const totalRun = stepCount * stepRun; // 2.80m -> termina en z = 6.75
       const totalRise = stepCount * stepRise; // 2.20m
       const diagLen = Math.hypot(totalRun, totalRise);
       const slopeAngle = Math.atan2(totalRise, totalRun);
 
-      // Tramo descendente limpio hacia el 1° Piso (y = 0 -> -2.20m) con hueco inferior cerrado
+      // Cierre inferior del hueco de escalera (y = -2.60 .. -0.004) separado de muros superiores
       const shaftLowerWallMat = new THREE.MeshStandardMaterial({
         color: '#4e5850',
         roughness: 0.9,
@@ -1617,66 +1698,93 @@ export class SchoolEngine {
         envMapIntensity: 0.22,
       });
 
-      // Cierre inferior del hueco de escalera (y = -2.6 .. 0) para evitar ver el vacío bajo el piso
-      const shaftLeft = new THREE.Mesh(new THREE.BoxGeometry(0.24, 2.6, 4.8), shaftLowerWallMat);
-      shaftLeft.position.set(-1.7, -1.3, 4.7);
+      const shaftLeft = new THREE.Mesh(new THREE.BoxGeometry(0.24, 2.59, 5.5), shaftLowerWallMat);
+      shaftLeft.position.set(-1.7, -1.3, 5.05);
       pocket.add(shaftLeft);
 
-      const shaftRight = new THREE.Mesh(new THREE.BoxGeometry(0.24, 2.6, 4.8), shaftLowerWallMat);
-      shaftRight.position.set(1.7, -1.3, 4.7);
+      const shaftRight = new THREE.Mesh(new THREE.BoxGeometry(0.24, 2.59, 5.5), shaftLowerWallMat);
+      shaftRight.position.set(1.7, -1.3, 5.05);
       pocket.add(shaftRight);
 
-      const shaftBack = new THREE.Mesh(new THREE.BoxGeometry(3.6, 2.6, 0.24), shaftLowerWallMat);
-      shaftBack.position.set(0, -1.3, 7.0);
+      const shaftBack = new THREE.Mesh(new THREE.BoxGeometry(3.6, 2.59, 0.24), shaftLowerWallMat);
+      shaftBack.position.set(0, -1.3, 7.75);
       pocket.add(shaftBack);
 
-      // Faldón bajo el descanso superior (z = 3.95)
-      const fasciaWall = new THREE.Mesh(new THREE.BoxGeometry(3.32, 2.6, 0.16), shaftLowerWallMat);
-      fasciaWall.position.set(0, -1.3, zStart - 0.08);
+      // Faldón bajo el descanso superior desplazado hacia -Z (z = 3.81) para no tocar la 1.ª contrahuella
+      const fasciaWall = new THREE.Mesh(new THREE.BoxGeometry(3.16, 2.54, 0.14), shaftLowerWallMat);
+      fasciaWall.position.set(0, -1.33, zStart - 0.14);
       pocket.add(fasciaWall);
 
-      // Descanso inferior al pie de las escaleras (y = -2.20m)
-      const lowerLanding = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 3.2), mats.roomFloorMat);
+      // Descanso inferior al pie de las escaleras (z = 6.754 .. 7.68) sin solaparse con el último peldaño
+      const lowerLanding = new THREE.Mesh(new THREE.PlaneGeometry(3.16, 0.92), mats.roomFloorMat);
       lowerLanding.rotation.x = -Math.PI / 2;
-      lowerLanding.position.set(0, -totalRise, 5.45);
+      lowerLanding.position.set(0, -totalRise + 0.002, zStart + totalRun + 0.464);
       lowerLanding.receiveShadow = !this.isSoftwareGl;
       pocket.add(lowerLanding);
 
-      // Luz tenue dentro del hueco para leer claramente los peldaños descendentes
       const wellLight = new THREE.PointLight('#8fa8b8', 0.85, 10);
-      wellLight.position.set(0, 1.75, 5.4);
+      wellLight.position.set(0, 1.75, 5.6);
       pocket.add(wellLight);
+
+      const treadThick = 0.042;
+      const riserThick = 0.036;
+      const railX = 1.4;
+
+      // Cantonera de arranque en el borde del descanso superior (z = 3.95)
+      const startNosing = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.012, 0.028), nosingMat);
+      startNosing.position.set(0, 0.003, zStart - 0.008);
+      pocket.add(startNosing);
 
       for (let s = 0; s < stepCount; s++) {
         const yTop = -(s + 1) * stepRise;
-        const zCenter = zStart + (s + 0.5) * stepRun;
+        const zStepFront = zStart + s * stepRun;
+        const zStepBack = zStepFront + stepRun;
+        const isLastStep = s === stepCount - 1;
 
+        // 1. Contrahuella vertical retrasada respecto al borde de salida (+Z) del peldaño superior
+        const riserHeight = stepRise - 0.036;
+        const riser = new THREE.Mesh(
+          new THREE.BoxGeometry(2.66, riserHeight, riserThick),
+          riserMat
+        );
+        riser.position.set(
+          0,
+          yTop + riserHeight * 0.5 - 0.004,
+          zStepFront - riserThick * 0.5
+        );
+        riser.receiveShadow = !this.isSoftwareGl;
+        pocket.add(riser);
+
+        // 2. Huella horizontal con vuelo hacia +Z y entrega limpia bajo la contrahuella anterior
+        const treadBackZ = zStepFront - 0.016;
+        const treadFrontZ = isLastStep ? zStepBack : zStepBack + 0.024;
+        const treadDepth = treadFrontZ - treadBackZ;
         const tread = new THREE.Mesh(
-          new THREE.BoxGeometry(2.88, 0.055, stepRun + 0.04),
+          new THREE.BoxGeometry(2.72, treadThick, treadDepth),
           mats.stairTreadMat
         );
-        tread.position.set(0, yTop - 0.0275, zCenter);
+        tread.position.set(
+          0,
+          yTop - treadThick * 0.5,
+          treadBackZ + treadDepth * 0.5
+        );
         tread.receiveShadow = !this.isSoftwareGl;
         tread.castShadow = !this.isSoftwareGl;
         pocket.add(tread);
 
-        const nosing = new THREE.Mesh(new THREE.BoxGeometry(2.92, 0.026, 0.036), mats.cedarTimberMat);
-        nosing.position.set(0, yTop - 0.013, zCenter - stepRun * 0.5);
+        // 3. Cantonera antideslizante en el borde de bajada (+Z), elevada para cero Z-fighting
+        const nosing = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.012, 0.028), nosingMat);
+        nosing.position.set(0, yTop + 0.001, zStepBack + 0.015);
         pocket.add(nosing);
-
-        const riser = new THREE.Mesh(new THREE.BoxGeometry(2.84, stepRise, 0.04), riserMat);
-        riser.position.set(0, yTop + stepRise * 0.5, zCenter - stepRun * 0.5);
-        riser.receiveShadow = !this.isSoftwareGl;
-        pocket.add(riser);
       }
 
-      // Zancas, postes de arranque/llegada, pasamanos descendentes y balaustres en madera envejecida
-      [-1.36, 1.36].forEach((rx) => {
+      // Zancas laterales fuera del ancho de peldaños y pasamanos descendentes en madera oscura
+      [-railX, railX].forEach((rx) => {
         const stringer = new THREE.Mesh(
           new THREE.BoxGeometry(0.1, 0.24, diagLen + 0.12),
           mats.cedarTimberMat
         );
-        stringer.position.set(rx * 1.04, -totalRise * 0.5 - 0.12, zStart + totalRun * 0.5);
+        stringer.position.set(rx * 1.03, -totalRise * 0.5 - 0.14, zStart + totalRun * 0.5);
         stringer.rotation.x = slopeAngle;
         pocket.add(stringer);
 
@@ -1705,6 +1813,13 @@ export class SchoolEngine {
       });
     }
 
+    // Conserva colisionadores de muros del hueco (`wall`) y excluye peldaños/balaustres lejanos del área transitable
+    pocket.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh && !child.userData.colliderKind) {
+        child.userData.noCollision = true;
+      }
+    });
+
     group.add(pocket);
   }
 
@@ -1714,11 +1829,13 @@ export class SchoolEngine {
     boardGroup.position.set(2.2, 0, -3.95);
     const frame = new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.35, 0.1), timberMat);
     frame.position.y = 1.65;
+    frame.userData.colliderKind = 'furniture';
     boardGroup.add(frame);
 
     const corkMat = new THREE.MeshStandardMaterial({ color: '#9c6f44', roughness: 0.9 });
     const cork = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 1.15), corkMat);
     cork.position.set(0, 1.65, 0.06);
+    cork.userData.noCollision = true;
     boardGroup.add(cork);
 
     const paperMat = new THREE.MeshStandardMaterial({ color: '#faf6ee', roughness: 0.8 });
@@ -1726,6 +1843,7 @@ export class SchoolEngine {
       const sheet = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.62), paperMat);
       sheet.position.set(px, 1.68 + (idx % 2) * 0.05, 0.07);
       sheet.rotation.z = (idx - 1) * 0.04;
+      sheet.userData.noCollision = true;
       boardGroup.add(sheet);
     });
     this.floor1Group.add(boardGroup);
@@ -1739,15 +1857,18 @@ export class SchoolEngine {
 
     const carcass = new THREE.Mesh(new THREE.BoxGeometry(1.75, 2.35, 0.78), cabinetMat);
     carcass.position.y = 1.175;
+    carcass.userData.colliderKind = 'furniture';
     closetGroup.add(carcass);
 
     const crown = new THREE.Mesh(new THREE.BoxGeometry(1.88, 0.1, 0.86), timberMat);
     crown.position.y = 2.4;
+    crown.userData.noCollision = true;
     closetGroup.add(crown);
 
     // Hinged right door that swings slightly open when unlocked
     this.closetDoorPivot = new THREE.Group();
     this.closetDoorPivot.position.set(0.82, 1.175, 0.4);
+    this.closetDoorPivot.userData.noCollision = true;
     const rightDoor = new THREE.Mesh(new THREE.BoxGeometry(0.82, 2.2, 0.06), cabinetMat);
     rightDoor.position.set(-0.41, 0, 0);
     this.closetDoorPivot.add(rightDoor);
@@ -1761,11 +1882,13 @@ export class SchoolEngine {
     const bucketMat = new THREE.MeshStandardMaterial({ color: '#2563eb', roughness: 0.35, metalness: 0.15 });
     const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.19, 0.38, 16), bucketMat);
     bucket.position.set(-1.25, 0.19, 0.2);
+    bucket.userData.colliderKind = 'furniture';
     closetGroup.add(bucket);
 
     const broomStick = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.45, 8), timberMat);
     broomStick.position.set(-1.22, 0.72, 0.2);
     broomStick.rotation.z = 0.14;
+    broomStick.userData.noCollision = true;
     closetGroup.add(broomStick);
 
     const roomLight1 = new THREE.PointLight('#d9b98b', 1.15, 11);
@@ -1877,11 +2000,13 @@ export class SchoolEngine {
       baseWall.position.y = 0.81;
       baseWall.castShadow = !this.isSoftwareGl;
       baseWall.receiveShadow = !this.isSoftwareGl;
+      baseWall.userData.colliderKind = 'wall';
       span.add(baseWall);
 
       const coping = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.1, spanLen + 0.06), copingMat);
       coping.position.y = 1.67;
       coping.castShadow = !this.isSoftwareGl;
+      coping.userData.noCollision = true;
       span.add(coping);
 
       // Pilares estructurales de concreto cada ~2.6m
@@ -1891,6 +2016,7 @@ export class SchoolEngine {
         const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.78, 0.36), copingMat);
         pillar.position.set(0, 0.89, pz);
         pillar.castShadow = !this.isSoftwareGl;
+        pillar.userData.colliderKind = 'pillar';
         span.add(pillar);
       }
 
@@ -1898,11 +2024,13 @@ export class SchoolEngine {
       [1.82, 2.58].forEach((ry) => {
         const rail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.045, spanLen), ironFenceMat);
         rail.position.y = ry;
+        rail.userData.noCollision = true;
         span.add(rail);
       });
       const picketCount = Math.max(4, Math.floor(spanLen / 0.34));
       const picketGeo = new THREE.BoxGeometry(0.025, 0.86, 0.025);
       const pickets = new THREE.InstancedMesh(picketGeo, ironFenceMat, picketCount);
+      pickets.userData.noCollision = true;
       const dummy = new THREE.Object3D();
       for (let p = 0; p < picketCount; p++) {
         const pz = -spanLen * 0.5 + ((p + 0.5) / picketCount) * spanLen;
@@ -1962,6 +2090,7 @@ export class SchoolEngine {
       bush.scale.set(0.95 + (idx % 3) * 0.14, 0.8 + (idx % 2) * 0.18, 1.05);
       bush.castShadow = !this.isSoftwareGl;
       bush.receiveShadow = !this.isSoftwareGl;
+      bush.userData.colliderKind = 'furniture';
       this.floor1Group.add(bush);
     });
 
@@ -1982,14 +2111,17 @@ export class SchoolEngine {
       const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 3.4, 8), trunkMat);
       trunk.position.y = 1.7;
       trunk.castShadow = !this.isSoftwareGl;
+      trunk.userData.colliderKind = 'pillar';
       tree.add(trunk);
       const canopy1 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.65, 1), foliageMat);
       canopy1.position.set(0, 3.7, 0);
       canopy1.castShadow = !this.isSoftwareGl;
+      canopy1.userData.noCollision = true;
       tree.add(canopy1);
       const canopy2 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.2, 1), foliageMat);
       canopy2.position.set(0.7, 3.1, 0.4);
       canopy2.castShadow = !this.isSoftwareGl;
+      canopy2.userData.noCollision = true;
       tree.add(canopy2);
       targetGroup.add(tree);
     };
@@ -2040,6 +2172,7 @@ export class SchoolEngine {
         const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.35, 10), steelMat);
         leg.position.set(sx, 1.175, sz);
         leg.castShadow = !this.isSoftwareGl;
+        leg.userData.colliderKind = 'pillar';
         shelter.add(leg);
       });
     });
@@ -2047,11 +2180,13 @@ export class SchoolEngine {
       const beam = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.06, 0.06), steelMat);
       beam.position.set(0, 2.34, bz);
       beam.castShadow = !this.isSoftwareGl;
+      beam.userData.noCollision = true;
       shelter.add(beam);
     });
     const shelterRoof = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.07, 2.8), roofMat);
     shelterRoof.position.set(0, 2.4, 0);
     shelterRoof.rotation.x = 0.12;
+    shelterRoof.userData.noCollision = true;
     shelter.add(shelterRoof);
 
     // 4 Bicicletas compuestas en tonos desgastados coherentes con la paleta nocturna
@@ -2061,34 +2196,36 @@ export class SchoolEngine {
       const bike = this.createCompositeBicycle(frameColors[idx], steelMat, tireMat);
       bike.position.set(bx, 0, 0);
       bike.rotation.y = Math.PI / 2 + (idx % 2 === 0 ? 0.06 : -0.05);
+      bike.userData.colliderKind = 'bike';
       shelter.add(bike);
     });
     this.floor1Group.add(shelter);
 
-    // Hojas secas otoñales apagadas (InstancedMesh reactivo al sensor de sacudida)
-    const leafCount = 90;
-    const leafGeo = new THREE.PlaneGeometry(0.18, 0.12);
-    const leafMat = new THREE.MeshStandardMaterial({
-      color: '#8c3816',
-      roughness: 0.72,
-      side: THREE.DoubleSide,
-      envMapIntensity: 0.3,
-    });
-    this.leavesInstanced = new THREE.InstancedMesh(leafGeo, leafMat, leafCount);
-    this.leavesInstanced.frustumCulled = false;
-    const leafPalette = [new THREE.Color('#8c3816'), new THREE.Color('#7a4c18'), new THREE.Color('#5c1d1d')];
+    // Vegetación y hojas en Aparcabicicletas usando geometría optimizada `leaf.glb` + THREE.InstancedMesh
+    const leafLoaderHandle = loadAparcabicicletasLeafInstancing({
+      targetGroup: this.floor1Group,
+      isSoftwareGl: this.isSoftwareGl,
+      onLoaded: (handle) => {
+        if (this.disposed) {
+          handle.dispose();
+          return;
+        }
+        this.aparcabicicletasFoliageHandle = handle;
+        this.leavesInstanced = handle.swirlingInstanced;
+        this.leafSeeds = handle.swirlingSeeds;
 
-    for (let i = 0; i < leafCount; i++) {
-      this.leafSeeds.push({
-        angle: (i / leafCount) * Math.PI * 6,
-        radius: 0.5 + (i % 9) * 0.24,
-        height: 0.12 + (i % 12) * 0.16,
-        speed: 0.7 + (i % 5) * 0.25,
-        scatter: 0,
-      });
-      this.leavesInstanced.setColorAt(i, leafPalette[i % leafPalette.length]);
-    }
-    this.floor1Group.add(this.leavesInstanced);
+        if (!this.isSoftwareGl) {
+          handle.textures.forEach((tex) => this.renderer.initTexture(tex));
+          if (this.hasCompletedBoot) {
+            const prevVis = this.floor1Group.visible;
+            this.floor1Group.visible = true;
+            this.renderer.compile(this.scene, this.camera);
+            this.floor1Group.visible = prevVis;
+          }
+        }
+      },
+    });
+    this.cancelLeafLoad = leafLoaderHandle.cancel;
 
     // 4. Pasillo Aula 1B — Campanita de Viento Japonesa (Fūrin) en (-9.2, 0, -1.2)
     this.windChimeGroup = new THREE.Group();
@@ -2184,6 +2321,7 @@ export class SchoolEngine {
     for (let sz = -23.0; sz <= -19.4; sz += 1.75) {
       const partition = new THREE.Mesh(new THREE.BoxGeometry(1.7, 2.15, 0.06), stallMat);
       partition.position.set(22.9, 1.15, sz);
+      partition.userData.colliderKind = 'furniture';
       this.floor2Group.add(partition);
     }
 
@@ -2193,12 +2331,14 @@ export class SchoolEngine {
       new THREE.MeshStandardMaterial({ color: '#e7e5e4', roughness: 0.25 })
     );
     counter.position.set(29.45, 0.425, -21.2);
+    counter.userData.colliderKind = 'furniture';
     this.floor2Group.add(counter);
 
     // Framed Mirror mapped live to Camera WebRTC VideoTexture or Procedural Mist Mirror
     const mirrorGroup = new THREE.Group();
     mirrorGroup.position.set(29.82, 1.65, -21.2);
     mirrorGroup.rotation.y = -Math.PI / 2;
+    mirrorGroup.userData.noCollision = true;
 
     const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.45, 0.08), timberMat);
     mirrorGroup.add(mirrorFrame);
@@ -2238,20 +2378,24 @@ export class SchoolEngine {
       new THREE.MeshStandardMaterial({ color: '#14532d', roughness: 0.78 })
     );
     chalkboard.position.set(-26.0, 1.85, -24.52);
+    chalkboard.userData.colliderKind = 'furniture';
     this.floor2Group.add(chalkboard);
 
     const deskMat = new THREE.MeshStandardMaterial({ color: '#5c3d24', roughness: 0.5 });
     const mainDesk = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.82, 1.0), deskMat);
     mainDesk.position.set(-24.5, 0.41, -23.45);
+    mainDesk.userData.colliderKind = 'furniture';
     this.floor2Group.add(mainDesk);
 
     const sideDesk = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.82, 0.9), deskMat);
     sideDesk.position.set(-27.8, 0.41, -23.2);
+    sideDesk.userData.colliderKind = 'furniture';
     this.floor2Group.add(sideDesk);
 
     // Composite Gyro-Reactive Sealed Astrolabe Box on Main Desk
     const cofferBase = new THREE.Group();
     cofferBase.position.set(-24.5, 0.84, -23.45);
+    cofferBase.userData.noCollision = true;
 
     const lacquerMat = new THREE.MeshStandardMaterial({
       color: '#450a0a',
@@ -2427,7 +2571,7 @@ export class SchoolEngine {
           roughness: 0.28,
           metalness: 0.55,
           transparent: true,
-          opacity: 0.48,
+          opacity: 0.36,
         });
         stairMat.needsUpdate = true;
         const coneDir = marker.targetFloor === 2 ? 1 : -1;
@@ -2492,6 +2636,28 @@ export class SchoolEngine {
       visRecord.fallbackVisual.visible = false;
       visRecord.glbInstance = instance;
       visRecord.root.add(instance.root);
+
+      // Si el .glb corresponde a otro piso (ej. 2F), pre-compila sus materiales en GPU al cargar
+      if (!this.isSoftwareGl && this.hasCompletedBoot && visRecord.marker.floor !== this.currentFloor) {
+        const floorGroup = visRecord.marker.floor === 1 ? this.floor1Group : this.floor2Group;
+        const prevFloorVisible = floorGroup.visible;
+        const prevMarkerVisible = visRecord.root.visible;
+        floorGroup.visible = true;
+        visRecord.root.visible = true;
+        instance.root.traverse((obj) => {
+          if (obj instanceof THREE.Mesh) {
+            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+            mats.forEach((mat) => {
+              if (mat && 'map' in mat && mat.map instanceof THREE.Texture) {
+                this.renderer.initTexture(mat.map);
+              }
+            });
+          }
+        });
+        this.renderer.compile(this.scene, this.camera);
+        floorGroup.visible = prevFloorVisible;
+        visRecord.root.visible = prevMarkerVisible;
+      }
     } catch {
       // Mantiene activo el marcador procedural de respaldo si falla la red
     }
@@ -2499,6 +2665,19 @@ export class SchoolEngine {
 
   public getCurrentFloor(): FloorNumber {
     return this.currentFloor;
+  }
+
+  private renderCurrentFrame() {
+    if (this.disposed) return;
+    try {
+      if (this.composer && !this.isSoftwareGl) {
+        this.composer.render();
+      } else {
+        this.renderer.render(this.scene, this.camera);
+      }
+    } catch {
+      // Evita interrumpir el ciclo principal si el contexto WebGL está temporalmente perdido
+    }
   }
 
   public setFloor(
@@ -2519,6 +2698,22 @@ export class SchoolEngine {
       this.playerPitch = 0;
     }
 
+    // Sincroniza de inmediato cámara, skybox y escena para que el nuevo piso quede renderizado
+    // detrás del telón negro antes de iniciar el barrido de salida.
+    this.camera.position.copy(this.playerPos);
+    _camEuler.set(
+      THREE.MathUtils.clamp(this.playerPitch, -0.85, 0.85),
+      this.playerYaw,
+      0,
+      'YXZ'
+    );
+    this.camera.quaternion.setFromEuler(_camEuler);
+    this.camera.updateMatrixWorld();
+
+    if (this.skybox) {
+      this.skybox.mesh.position.set(this.playerPos.x, 0, this.playerPos.z);
+    }
+
     if (this.lastNotifiedFloor !== floor) {
       this.lastNotifiedFloor = floor;
       if (!options?.silentFloorNotice) {
@@ -2530,6 +2725,14 @@ export class SchoolEngine {
     this.callbacks.onNearbyMarkerChange(null);
     this.updateSunShadowTracking();
     this.updateZoneAndProximity();
+    this.updateReactiveWorldProps(0.016, this.clock.elapsedTime);
+
+    // Descarta cualquier delta acumulado mientras ocurría la transición de piso
+    this.clock.getDelta();
+
+    if (this.hasCompletedBoot && !this.disposed) {
+      this.renderCurrentFrame();
+    }
   }
 
   public setGamePhase(phase: GamePhase) {
@@ -2617,31 +2820,19 @@ export class SchoolEngine {
   }
 
   private isWalkable(x: number, z: number, floor: FloorNumber): WalkableRect | null {
-    const playerRadius = 0.18;
-
-    // 1. Physical Circle-vs-Box3 collision strictly against the 3 shoe-locker islands on 1F
-    if (floor === 1) {
-      for (let i = 0; i < this.shoeLockerColliders.length; i++) {
-        const box = this.shoeLockerColliders[i];
-        const closestX = THREE.MathUtils.clamp(x, box.min.x, box.max.x);
-        const closestZ = THREE.MathUtils.clamp(z, box.min.z, box.max.z);
-        const dx = x - closestX;
-        const dz = z - closestZ;
-        if (dx * dx + dz * dz < playerRadius * playerRadius) {
-          return null;
-        }
-      }
+    const floorData = this.floorCollisions?.[floor];
+    if (floorData) {
+      return findValidWalkableZone(x, z, floorData, PLAYER_COLLISION_RADIUS);
     }
 
-    // 2. Room & corridor walkable bounds check
     for (let i = 0; i < WALKABLE_ZONES.length; i++) {
       const r = WALKABLE_ZONES[i];
       if (r.floor !== floor) continue;
       if (
-        x >= r.minX + playerRadius &&
-        x <= r.maxX - playerRadius &&
-        z >= r.minZ + playerRadius &&
-        z <= r.maxZ - playerRadius
+        x >= r.minX + PLAYER_COLLISION_RADIUS &&
+        x <= r.maxX - PLAYER_COLLISION_RADIUS &&
+        z >= r.minZ + PLAYER_COLLISION_RADIUS &&
+        z <= r.maxZ - PLAYER_COLLISION_RADIUS
       ) {
         return r;
       }
@@ -2689,19 +2880,32 @@ export class SchoolEngine {
 
       const prevX = this.playerPos.x;
       const prevZ = this.playerPos.z;
-      const nextX = prevX + _moveVec.x;
-      const nextZ = prevZ + _moveVec.z;
+      const floorData = this.floorCollisions?.[this.currentFloor];
 
-      // Axis-separated sliding collision against school walls
-      if (this.isWalkable(nextX, nextZ, this.currentFloor)) {
-        this.playerPos.x = nextX;
-        this.playerPos.z = nextZ;
+      if (floorData) {
+        const resolved = resolvePlayerMovement(
+          prevX,
+          prevZ,
+          _moveVec.x,
+          _moveVec.z,
+          floorData,
+          PLAYER_COLLISION_RADIUS
+        );
+        this.playerPos.x = resolved.x;
+        this.playerPos.z = resolved.z;
       } else {
-        if (this.isWalkable(nextX, this.playerPos.z, this.currentFloor)) {
+        const nextX = prevX + _moveVec.x;
+        const nextZ = prevZ + _moveVec.z;
+        if (this.isWalkable(nextX, nextZ, this.currentFloor)) {
           this.playerPos.x = nextX;
-        }
-        if (this.isWalkable(this.playerPos.x, nextZ, this.currentFloor)) {
           this.playerPos.z = nextZ;
+        } else {
+          if (this.isWalkable(nextX, this.playerPos.z, this.currentFloor)) {
+            this.playerPos.x = nextX;
+          }
+          if (this.isWalkable(this.playerPos.x, nextZ, this.currentFloor)) {
+            this.playerPos.z = nextZ;
+          }
         }
       }
 
@@ -2947,7 +3151,12 @@ export class SchoolEngine {
           : seed.height + Math.sin(elapsed * 2 + i) * 0.12 + shakeBoost * 1.1;
 
         _dummyObj.position.set(27.5 + Math.cos(a) * r, y, -21.8 + Math.sin(a) * r);
-        _dummyObj.rotation.set(elapsed + i, a, Math.sin(elapsed * 3 + i) * 0.6);
+        _dummyObj.rotation.set(
+          seed.rotOffsetX + elapsed + i,
+          a,
+          seed.rotOffsetZ + Math.sin(elapsed * 3 + i) * 0.6
+        );
+        _dummyObj.scale.setScalar(seed.scale);
         _dummyObj.updateMatrix();
         this.leavesInstanced.setMatrixAt(i, _dummyObj.matrix);
       }
@@ -3151,6 +3360,15 @@ export class SchoolEngine {
     dom.removeEventListener('pointermove', this.handlePointerMove);
     dom.removeEventListener('pointerup', this.handlePointerUp);
     dom.removeEventListener('pointercancel', this.handlePointerUp);
+
+    this.cancelLeafLoad?.();
+    this.cancelLeafLoad = null;
+    if (this.aparcabicicletasFoliageHandle) {
+      this.aparcabicicletasFoliageHandle.dispose();
+      this.aparcabicicletasFoliageHandle = null;
+    }
+    this.leavesInstanced = null;
+    this.leafSeeds = [];
 
     this.markersById.forEach((vis) => {
       if (vis.glbInstance) {

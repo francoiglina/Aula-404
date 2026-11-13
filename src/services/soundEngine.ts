@@ -19,13 +19,16 @@ class SoundEngine {
   private bgmGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
   private rewardGain: GainNode | null = null;
+  private masterCompressor: DynamicsCompressorNode | null = null;
   public isMuted: boolean = false;
 
-  // Niveles nominales de mezcla: BGM ambiental con mayor presencia (0.45) sin opacar pasos, UI ni pistas
-  private readonly bgmBaseGain = 0.45;
-  private bgmTargetVolume = 0.45;
-  private readonly sfxBaseGain = 0.48;
-  private readonly rewardBaseGain = 0.78;
+  // Incremento de +4 dB sobre la BGM de la escuela (0.87 * 10^(4/20) ≈ 1.379),
+  // compensando SFX y recompensas sobre un compresor maestro suave anticlipping.
+  private readonly bgmMaxGain = 1.6;
+  private readonly bgmBaseGain = 0.87 * Math.pow(10, 4 / 20);
+  private bgmTargetVolume = 0.87 * Math.pow(10, 4 / 20);
+  private readonly sfxBaseGain = 0.94;
+  private readonly rewardBaseGain = 1.08;
 
   // Estado del bucle ambiental school_bgm.mp3 (THREE.Audio + THREE.AudioLoader)
   private isBgmLoading: boolean = false;
@@ -41,7 +44,7 @@ class SoundEngine {
   public readonly footsteps = new FootstepAudioSystem({
     baseCooldownSec: 0.37,
     minTriggerGapMs: 220,
-    baseVolume: 0.9,
+    baseVolume: 0.95,
     volumeVariation: 0.08,
     pitchVariation: 0.04,
   });
@@ -62,9 +65,9 @@ class SoundEngine {
   private activeSuccessSource: AudioBufferSourceNode | null = null;
   private duckRestoreTimer: number | null = null;
 
-  private readonly confirmBufferVolume = 0.64;
-  private readonly confirmHtmlVolume = 0.28;
-  private readonly sensorSuccessHtmlVolume = 0.68;
+  private readonly confirmBufferVolume = 0.85;
+  private readonly confirmHtmlVolume = 0.48;
+  private readonly sensorSuccessHtmlVolume = 0.88;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -124,9 +127,25 @@ class SoundEngine {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
 
-      // Sincroniza el AudioContext nativo con Three.js para usar THREE.AudioListener y THREE.AudioLoader
+      // Compresor maestro suave para evitar saturación al sumar BGM (+4 dB) y SFX
+      const now = this.ctx.currentTime;
+      this.masterCompressor = this.ctx.createDynamicsCompressor();
+      this.masterCompressor.threshold.setValueAtTime(-6, now);
+      this.masterCompressor.knee.setValueAtTime(10, now);
+      this.masterCompressor.ratio.setValueAtTime(3.5, now);
+      this.masterCompressor.attack.setValueAtTime(0.004, now);
+      this.masterCompressor.release.setValueAtTime(0.16, now);
+      this.masterCompressor.connect(this.ctx.destination);
+
+      // Sincroniza el AudioContext nativo con Three.js y enruta el listener al compresor maestro
       THREE.AudioContext.setContext(this.ctx);
       this.listener = new THREE.AudioListener();
+      try {
+        this.listener.gain.disconnect();
+      } catch {
+        // Ignorar si no estaba conectado previamente
+      }
+      this.listener.gain.connect(this.masterCompressor);
       if (this.attachedCamera) {
         this.attachedCamera.add(this.listener);
       }
@@ -137,13 +156,13 @@ class SoundEngine {
       this.bgmGain = this.bgmSound.gain;
 
       this.sfxGain = this.ctx.createGain();
-      this.sfxGain.gain.setValueAtTime(this.sfxBaseGain, this.ctx.currentTime);
-      this.sfxGain.connect(this.ctx.destination);
+      this.sfxGain.gain.setValueAtTime(this.sfxBaseGain, now);
+      this.sfxGain.connect(this.masterCompressor);
 
       // Bus prioritario independiente para que el hallazgo de pistas destaque sobre pasos y BGM
       this.rewardGain = this.ctx.createGain();
-      this.rewardGain.gain.setValueAtTime(this.rewardBaseGain, this.ctx.currentTime);
-      this.rewardGain.connect(this.ctx.destination);
+      this.rewardGain.gain.setValueAtTime(this.rewardBaseGain, now);
+      this.rewardGain.connect(this.masterCompressor);
 
       this.footsteps.attachAudioContext(this.ctx, this.sfxGain);
       this.footsteps.setMuted(this.isMuted);
@@ -197,13 +216,13 @@ class SoundEngine {
     this.bgmHtmlFallback = new Audio(SCHOOL_BGM_AUDIO_URL);
     this.bgmHtmlFallback.loop = true;
     this.bgmHtmlFallback.preload = 'auto';
-    this.bgmHtmlFallback.volume = this.isMuted ? 0 : this.bgmTargetVolume;
+    this.bgmHtmlFallback.volume = this.isMuted ? 0 : Math.min(1, this.bgmTargetVolume);
   }
 
   private playHtmlBgmFallback(): void {
     if (!this.bgmHtmlFallback) return;
     this.bgmHtmlFallback.loop = true;
-    this.bgmHtmlFallback.volume = this.isMuted ? 0 : this.bgmTargetVolume;
+    this.bgmHtmlFallback.volume = this.isMuted ? 0 : Math.min(1, this.bgmTargetVolume);
     void this.bgmHtmlFallback.play().catch(() => {});
   }
 
@@ -335,7 +354,7 @@ class SoundEngine {
    */
   fadeOutBgm(durationSec = 0.85, options: BgmFadeOutOptions = {}) {
     const pauseAfterFade = options.pauseAfterFade ?? false;
-    const nextTarget = Math.max(0, Math.min(1, options.targetVolume ?? 0));
+    const nextTarget = Math.max(0, Math.min(this.bgmMaxGain, options.targetVolume ?? 0));
     this.bgmTargetVolume = nextTarget;
     this.clearBgmFadeTimer();
 
@@ -358,7 +377,7 @@ class SoundEngine {
     }
 
     if (this.bgmHtmlFallback) {
-      this.bgmHtmlFallback.volume = effectiveTarget;
+      this.bgmHtmlFallback.volume = Math.min(1, effectiveTarget);
       if (pauseAfterFade) {
         this.bgmHtmlFallback.pause();
       }
@@ -370,7 +389,7 @@ class SoundEngine {
    */
   fadeInBgm(durationSec = 0.85, targetVolume = this.bgmBaseGain) {
     this.clearBgmFadeTimer();
-    this.bgmTargetVolume = Math.max(0, Math.min(1, targetVolume));
+    this.bgmTargetVolume = Math.max(0, Math.min(this.bgmMaxGain, targetVolume));
     this.bgmShouldPlay = true;
     this.bgmExplicitlyPaused = false;
 
@@ -457,7 +476,7 @@ class SoundEngine {
     }
 
     if (this.bgmHtmlFallback) {
-      this.bgmHtmlFallback.volume = muted ? 0 : this.bgmTargetVolume;
+      this.bgmHtmlFallback.volume = muted ? 0 : Math.min(1, this.bgmTargetVolume);
     }
 
     if (!this.ctx) return;
@@ -492,7 +511,7 @@ class SoundEngine {
 
     osc.type = 'sine';
     osc.frequency.setValueAtTime(520 + Math.random() * 50, now);
-    gain.gain.setValueAtTime(0.025, now);
+    gain.gain.setValueAtTime(0.028, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
 
     osc.connect(gain);
@@ -739,6 +758,14 @@ class SoundEngine {
     if (this.sensorSuccessHtmlAudio) {
       this.sensorSuccessHtmlAudio.pause();
       this.sensorSuccessHtmlAudio = null;
+    }
+    if (this.masterCompressor) {
+      try {
+        this.masterCompressor.disconnect();
+      } catch {
+        // Ignorar
+      }
+      this.masterCompressor = null;
     }
     if (this.ctx) {
       this.ctx.close().catch(() => {});

@@ -195,7 +195,7 @@ export default function App() {
 
       setIsStairTransitioning(true);
       soundEngine.playStairsTransition();
-      soundEngine.fadeOutBgm(0.35, { targetVolume: 0.18 });
+      soundEngine.fadeOutBgm(0.35, { targetVolume: 0.24 });
 
       void ejecutarTransicionEscalera(direccion, () => {
         // Cambio de piso y reposicionamiento de cámara 3D ejecutado con pantalla 100% en negro
@@ -278,7 +278,7 @@ export default function App() {
         if (marker.challengeType === 'gyro_profesor') {
           void sensorService.enableGyroscope();
         }
-        soundEngine.fadeOutBgm(0.5, { targetVolume: 0.18 });
+        soundEngine.fadeOutBgm(0.5, { targetVolume: 0.24 });
         setActiveChallenge(marker.challengeType);
       }
     },

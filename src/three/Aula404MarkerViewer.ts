@@ -79,57 +79,71 @@ export function loadMarkerGltfTemplate(kind: MarkerGlbKind): Promise<GLTF> {
   return promise;
 }
 
-const MARKER_TRANSLUCENT_OPACITY = 0.48;
+const MARKER_LOWER_CONE_OPACITY = 0.15;
 const MARKER_SUBTLE_EMISSIVE_INTENSITY = 0.2;
 
 /**
- * Prepara materiales PBR y emisión controlada sobre una instancia clonada.
- * Ajusta `toneMapped = true` y reduce `emissiveIntensity` a 0.20 para evitar saturación
- * o quemado blanco bajo `UnrealBloomPass`, conservando colores HEX y `opacity = 0.48`.
+ * Aplica transparencia (opacity = 0.15) ÚNICAMENTE a los conos/cilindros concéntricos
+ * inferiores del marcador .glb (identificados por nombre y mitad inferior del Box3),
+ * manteniendo intactos los materiales, colores HEX, bloom y opacidad del ícono superior.
  */
 function configureMarkerMaterials(root: THREE.Object3D): void {
+  root.updateMatrixWorld(true);
+  const rootBox = new THREE.Box3().setFromObject(root);
+  const midY = (rootBox.min.y + rootBox.max.y) * 0.5;
+  const meshBox = new THREE.Box3();
+
   root.traverse((child) => {
     if (!(child as THREE.Mesh).isMesh) return;
     const mesh = child as THREE.Mesh;
 
-    const cloneAndTune = (mat: THREE.Material): THREE.Material => {
+    meshBox.setFromObject(mesh);
+    const meshCenterY = (meshBox.min.y + meshBox.max.y) * 0.5;
+
+    const isUpperIconMesh = /svg|boton|cuerpo/i.test(mesh.name);
+    const isLowerConeMesh = /marcador/i.test(mesh.name);
+
+    const tuneConeMaterial = (mat: THREE.Material): THREE.Material => {
+      const matName = mat.name || '';
+      const isUpperIconMat = /svg|boton|cuerpo/i.test(matName);
+      const isLowerConeMat = /marcador/i.test(matName);
+
+      const isLowerCone =
+        !isUpperIconMesh &&
+        !isUpperIconMat &&
+        (isLowerConeMesh || isLowerConeMat || (meshCenterY < midY && Boolean(mat.transparent)));
+
+      // El ícono flotante superior y su medallón conservan su material y opacidad originales
+      if (!isLowerCone) {
+        return mat;
+      }
+
       const cloned = mat.clone();
       const std = cloned as THREE.MeshStandardMaterial;
 
       std.toneMapped = true;
-
       if ('envMapIntensity' in std) {
         std.envMapIntensity = 0.55;
       }
-
       if ('emissiveIntensity' in std && typeof std.emissiveIntensity === 'number') {
         std.emissiveIntensity = MARKER_SUBTLE_EMISSIVE_INTENSITY;
       }
 
-      // Sobrescribe la opacidad nativa de los cilindros translúcidos del GLB (-> 0.48)
-      // logrando apariencia etérea sin alterar color, emissive ni los medallones/iconos opacos.
-      if (
-        std.transparent ||
-        /marcador/i.test(mesh.name) ||
-        /marcador/i.test(std.name)
-      ) {
-        std.transparent = true;
-        std.opacity = MARKER_TRANSLUCENT_OPACITY;
-        std.depthWrite = false;
-        std.side = THREE.DoubleSide;
-        mesh.renderOrder = 2;
-      } else {
-        mesh.renderOrder = 1;
-      }
-
+      std.transparent = true;
+      std.opacity = MARKER_LOWER_CONE_OPACITY;
+      std.depthWrite = false;
+      std.side = THREE.DoubleSide;
       std.needsUpdate = true;
+      std.userData = { ...std.userData, isLowerConeClone: true };
+
+      mesh.renderOrder = 2;
       return cloned;
     };
 
     if (Array.isArray(mesh.material)) {
-      mesh.material = mesh.material.map(cloneAndTune);
+      mesh.material = mesh.material.map(tuneConeMaterial);
     } else if (mesh.material) {
-      mesh.material = cloneAndTune(mesh.material);
+      mesh.material = tuneConeMaterial(mesh.material);
     }
   });
 }
@@ -188,11 +202,16 @@ export async function createGlbMarkerInstance(
     root.traverse((obj) => {
       if (!(obj as THREE.Mesh).isMesh) return;
       const mesh = obj as THREE.Mesh;
-      // No destruimos geometry porque se comparte con el template en caché; solo materiales clonados
+      // Solo liberamos materiales clonados de los conos inferiores; el ícono original y la geometría se comparten en caché
+      const disposeIfCloned = (mat?: THREE.Material | null) => {
+        if (mat?.userData?.isLowerConeClone) {
+          mat.dispose();
+        }
+      };
       if (Array.isArray(mesh.material)) {
-        mesh.material.forEach((m) => m.dispose());
+        mesh.material.forEach(disposeIfCloned);
       } else {
-        mesh.material?.dispose();
+        disposeIfCloned(mesh.material);
       }
     });
   };

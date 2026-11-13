@@ -1212,60 +1212,11 @@
   touch-action: none;
 }
 
-/* Tintado sutil de profundidad azul nocturno durante el cierre del whip pan */
-@keyframes stairWhipBackdropPulse {
-  0%,
-  100% {
-    background-color: rgba(2, 6, 16, 0);
-  }
-  30%,
-  64% {
-    background-color: rgba(2, 6, 16, 0.42);
-  }
-}
-
 .stair-whip-backdrop {
   position: absolute;
   inset: 0;
-  animation: stairWhipBackdropPulse 1080ms linear forwards;
-}
-
-/* SUBIR: Barrido de izquierda a derecha (-165vw -> 0 -> +165vw) con pausa en negro */
-@keyframes stairWhipSubir {
-  0% {
-    transform: translate3d(-165vw, 0, 0) skewX(-6deg);
-    animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
-  }
-  33% {
-    transform: translate3d(0vw, 0, 0) skewX(0deg);
-    animation-timing-function: linear;
-  }
-  59% {
-    transform: translate3d(0vw, 0, 0) skewX(0deg);
-    animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
-  }
-  100% {
-    transform: translate3d(165vw, 0, 0) skewX(-5deg);
-  }
-}
-
-/* BAJAR: Barrido inverso de derecha a izquierda (+165vw -> 0 -> -165vw) con pausa en negro */
-@keyframes stairWhipBajar {
-  0% {
-    transform: translate3d(165vw, 0, 0) skewX(6deg);
-    animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
-  }
-  33% {
-    transform: translate3d(0vw, 0, 0) skewX(0deg);
-    animation-timing-function: linear;
-  }
-  59% {
-    transform: translate3d(0vw, 0, 0) skewX(0deg);
-    animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
-  }
-  100% {
-    transform: translate3d(-165vw, 0, 0) skewX(5deg);
-  }
+  background-color: rgba(2, 6, 16, 0);
+  will-change: background-color;
 }
 
 .stair-whip-carriage {
@@ -1275,14 +1226,6 @@
   left: -60vw;
   width: 220vw;
   will-change: transform;
-}
-
-#stair-whip-overlay.is-subir .stair-whip-carriage {
-  animation: stairWhipSubir 1080ms forwards;
-}
-
-#stair-whip-overlay.is-bajar .stair-whip-carriage {
-  animation: stairWhipBajar 1080ms forwards;
 }
 
 /* Alas laterales con desenfoque gaussiano y degradado azul profundo nocturno -> negro */
@@ -1374,17 +1317,6 @@
   background-color: #000000;
 }
 
-@keyframes stairWhipReducedFade {
-  0%,
-  100% {
-    opacity: 0;
-  }
-  30%,
-  65% {
-    opacity: 1;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .stair-whip-backdrop,
   .stair-whip-blur-wings,
@@ -1396,7 +1328,7 @@
   #stair-whip-overlay.is-bajar .stair-whip-carriage {
     left: 0;
     width: 100vw;
-    animation: stairWhipReducedFade 650ms ease-in-out forwards;
+    will-change: opacity;
   }
 
   .stair-whip-black-core {
