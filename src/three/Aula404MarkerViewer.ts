@@ -27,41 +27,13 @@ const ROTATION_ACTION_NAMES = [
   'empty_rotacion-Action.003',
 ] as const;
 
-/**
- * Nodos objetivo para el efecto procedural de flotación senoidal en el eje Y.
- * Conviven con la rotación en Y de THREE.AnimationMixer porque las pistas nativas
- * de rotación solo animan `.quaternion` y dejan libre `.position.y`.
- */
-const PRIMARY_FLOAT_NODE_NAMES = ['empty_rotacion+.001', 'empty_rotacion+'] as const;
-const ICON_FLOAT_NODE_NAMES = [
-  'empty_rotacion-.001',
-  'empty_rotacion-',
-  'empty_rotacion-.003',
-] as const;
-
-export interface FloatNodeBinding {
-  node: THREE.Object3D;
-  baseY: number;
-  amplitudeFactor: number;
-}
-
 export interface GlbMarkerInstance {
   kind: MarkerGlbKind;
   root: THREE.Group;
   mixer: THREE.AnimationMixer;
   actions: THREE.AnimationAction[];
-  floatNodes: FloatNodeBinding[];
-  update: (delta: number, elapsed: number) => void;
+  update: (delta: number) => void;
   dispose: () => void;
-}
-
-export interface CreateGlbMarkerOptions {
-  /** Frecuencia angular del movimiento vertical Math.sin (rad/s). Por defecto 2.1 */
-  floatFrequency?: number;
-  /** Amplitud vertical en unidades locales del GLB. Por defecto 0.14 */
-  floatAmplitude?: number;
-  /** Desfase inicial para desincronizar múltiples marcadores en escena */
-  phaseOffset?: number;
 }
 
 // Caché compartido en memoria para descargar y parsear cada archivo .glb una sola vez
@@ -107,10 +79,13 @@ export function loadMarkerGltfTemplate(kind: MarkerGlbKind): Promise<GLTF> {
   return promise;
 }
 
+const MARKER_TRANSLUCENT_OPACITY = 0.48;
+const MARKER_SUBTLE_EMISSIVE_INTENSITY = 0.2;
+
 /**
- * Prepara materiales PBR y emisión neón (KHR_materials_emissive_strength) sobre una instancia clonada.
- * Evita conflictos de z-buffer entre los cilindros translúcidos concéntricos (`alphaMode: BLEND`)
- * y el medallón central opaco.
+ * Prepara materiales PBR y emisión controlada sobre una instancia clonada.
+ * Ajusta `toneMapped = true` y reduce `emissiveIntensity` a 0.20 para evitar saturación
+ * o quemado blanco bajo `UnrealBloomPass`, conservando colores HEX y `opacity = 0.48`.
  */
 function configureMarkerMaterials(root: THREE.Object3D): void {
   root.traverse((child) => {
@@ -121,13 +96,25 @@ function configureMarkerMaterials(root: THREE.Object3D): void {
       const cloned = mat.clone();
       const std = cloned as THREE.MeshStandardMaterial;
 
+      std.toneMapped = true;
+
       if ('envMapIntensity' in std) {
-        std.envMapIntensity = 1.2;
+        std.envMapIntensity = 0.55;
       }
 
-      // GLTFLoader importa automáticamente KHR_materials_emissive_strength en std.emissiveIntensity.
-      // Aseguramos orden de pintado limpio para los cilindros de aura translúcida.
-      if (std.transparent) {
+      if ('emissiveIntensity' in std && typeof std.emissiveIntensity === 'number') {
+        std.emissiveIntensity = MARKER_SUBTLE_EMISSIVE_INTENSITY;
+      }
+
+      // Sobrescribe la opacidad nativa de los cilindros translúcidos del GLB (-> 0.48)
+      // logrando apariencia etérea sin alterar color, emissive ni los medallones/iconos opacos.
+      if (
+        std.transparent ||
+        /marcador/i.test(mesh.name) ||
+        /marcador/i.test(std.name)
+      ) {
+        std.transparent = true;
+        std.opacity = MARKER_TRANSLUCENT_OPACITY;
         std.depthWrite = false;
         std.side = THREE.DoubleSide;
         mesh.renderOrder = 2;
@@ -149,23 +136,16 @@ function configureMarkerMaterials(root: THREE.Object3D): void {
 
 /**
  * Instancia un marcador GLB ("objeto" o "persona") listo para insertarse en cualquier escena Three.js,
- * con sus rotaciones nativas en bucle (`LoopRepeat`) y flotación senoidal (`Math.sin`) sobre el eje Y.
+ * reproduciendo únicamente su rotación constante en bucle (`LoopRepeat`) sobre el eje Y en posición base fija.
  */
 export async function createGlbMarkerInstance(
-  kind: MarkerGlbKind,
-  options: CreateGlbMarkerOptions = {}
+  kind: MarkerGlbKind
 ): Promise<GlbMarkerInstance> {
-  const {
-    floatFrequency = 2.1,
-    floatAmplitude = 0.14,
-    phaseOffset = 0,
-  } = options;
-
   const gltf = await loadMarkerGltfTemplate(kind);
   const root = gltf.scene.clone(true);
   configureMarkerMaterials(root);
 
-  // 1. Configurar THREE.AnimationMixer y reproducir los clips nativos de rotación en LoopRepeat
+  // Configurar THREE.AnimationMixer y reproducir únicamente los clips nativos de rotación en Y (LoopRepeat)
   const mixer = new THREE.AnimationMixer(root);
   const actions: THREE.AnimationAction[] = [];
 
@@ -193,42 +173,12 @@ export async function createGlbMarkerInstance(
     });
   }
 
-  // 2. Registrar los nodos centrales (`empty_rotacion+.001` y medallón/icono `empty_rotacion-.001`)
-  //    preservando su posición Y original para aplicar el desplazamiento senoidal limpio.
-  const floatNodes: FloatNodeBinding[] = [];
-
-  for (const name of PRIMARY_FLOAT_NODE_NAMES) {
-    const node = root.getObjectByName(name);
-    if (node) {
-      floatNodes.push({
-        node,
-        baseY: node.position.y,
-        amplitudeFactor: 0.7,
-      });
-    }
-  }
-
-  for (const name of ICON_FLOAT_NODE_NAMES) {
-    const node = root.getObjectByName(name);
-    if (node) {
-      floatNodes.push({
-        node,
-        baseY: node.position.y,
-        amplitudeFactor: 1.0,
-      });
-    }
-  }
-
-  const update = (delta: number, elapsed: number) => {
-    // Avanza la rotación sobre el eje Y de los clips internos del GLB
-    mixer.update(delta);
-
-    // Flotación vertical suave (Math.sin) que convive con la rotación sobre Y
-    const wave = Math.sin(elapsed * floatFrequency + phaseOffset);
-    for (let i = 0; i < floatNodes.length; i++) {
-      const target = floatNodes[i];
-      target.node.position.y =
-        target.baseY + wave * floatAmplitude * target.amplitudeFactor;
+  const update = (delta: number) => {
+    // Rotación constante sobre el eje vertical Y sin desplazamiento ni oscilación vertical
+    if (actions.length > 0) {
+      mixer.update(delta);
+    } else {
+      root.rotation.y += delta * 0.85;
     }
   };
 
@@ -252,7 +202,6 @@ export async function createGlbMarkerInstance(
     root,
     mixer,
     actions,
-    floatNodes,
     update,
     dispose,
   };
@@ -406,10 +355,7 @@ export class Aula404MarkerViewer {
     });
 
     try {
-      const instance = await createGlbMarkerInstance(kind, {
-        floatFrequency: 2.15,
-        floatAmplitude: 0.14,
-      });
+      const instance = await createGlbMarkerInstance(kind);
 
       if (this.disposed || requestId !== this.loadRequestId) {
         instance.dispose();
@@ -507,11 +453,10 @@ export class Aula404MarkerViewer {
     if (this.disposed) return;
 
     const delta = Math.min(this.clock.getDelta(), 0.1);
-    const elapsed = this.clock.elapsedTime;
 
     if (!document.hidden) {
       if (this.activeInstance) {
-        this.activeInstance.update(delta, elapsed);
+        this.activeInstance.update(delta);
       }
       this.controls.update();
       this.renderer.render(this.scene, this.camera);

@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { BookOpen, Box, CheckCircle2, Lock, Map as MapIcon, Navigation, X } from 'lucide-react';
-import { MAP_IMAGES } from '../data/gameContent';
+import React, { useEffect, useRef, useState } from 'react';
+import { BookOpen, Box, CheckCircle2, Lock, Map as MapIcon, X } from 'lucide-react';
 import { MARKER_3D_COLORS } from '../three/markerPalette';
-import { ClueRecord, FloorNumber, PhaseIndicator } from '../types';
+import { SchoolEngine } from '../three/SchoolEngine';
+import { ClueRecord, FinalSubstate, FloorNumber, GamePhase, PhaseIndicator } from '../types';
+import { FULL_MAP_VIEWPORT, renderSchoolMapCanvas } from '../utils/schoolMapRenderer';
 import { MarkerShowcaseView } from './MarkerShowcaseView';
 
 const ROMAN_STEPS = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
@@ -11,7 +12,11 @@ export type SchoolModalTab = 'map' | 'clues' | 'markers';
 
 interface SchoolMapModalProps {
   initialTab: SchoolModalTab;
+  engineRef?: React.RefObject<SchoolEngine | null>;
   currentFloor: FloorNumber;
+  phase: GamePhase;
+  unlockedObjects: Record<string, boolean>;
+  finalSubstate: FinalSubstate;
   playerCoords: { x: number; z: number; yaw: number; floor: FloorNumber };
   clues: ClueRecord[];
   phaseIndicator: PhaseIndicator;
@@ -21,7 +26,11 @@ interface SchoolMapModalProps {
 
 export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
   initialTab,
+  engineRef,
   currentFloor,
+  phase,
+  unlockedObjects,
+  finalSubstate,
   playerCoords,
   clues,
   phaseIndicator,
@@ -30,16 +39,82 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<SchoolModalTab>(initialTab);
   const [viewingFloor, setViewingFloor] = useState<FloorNumber>(currentFloor);
-  const [mapImgError, setMapImgError] = useState<Record<number, boolean>>({});
+  const fullMapCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const selectTab = (tab: SchoolModalTab) => {
     setActiveTab(tab);
     onTabChange?.(tab);
   };
 
-  // Map world coordinates (x: -31..31, z: -26..9) onto percentage coordinates for live radar pin
-  const radarLeftPct = Math.min(92, Math.max(8, ((playerCoords.x + 31) / 62) * 100));
-  const radarTopPct = Math.min(92, Math.max(8, ((playerCoords.z + 26) / 35) * 100));
+  // Refs sincronizados para renderizar el plano completo en tiempo real con worldToMap
+  const liveStateRef = useRef({
+    viewingFloor,
+    phase,
+    unlockedObjects,
+    finalSubstate,
+    playerCoords,
+  });
+
+  useEffect(() => {
+    liveStateRef.current = {
+      viewingFloor,
+      phase,
+      unlockedObjects,
+      finalSubstate,
+      playerCoords,
+    };
+  }, [viewingFloor, phase, unlockedObjects, finalSubstate, playerCoords]);
+
+  useEffect(() => {
+    if (activeTab !== 'map') return;
+    let rafId = 0;
+
+    const renderFullMapFrame = () => {
+      const canvas = fullMapCanvasRef.current;
+      const engine = engineRef?.current;
+      const cur = liveStateRef.current;
+
+      if (canvas) {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const targetW = Math.round(FULL_MAP_VIEWPORT.width * dpr);
+        const targetH = Math.round(FULL_MAP_VIEWPORT.height * dpr);
+
+        if (canvas.width !== targetW || canvas.height !== targetH) {
+          canvas.width = targetW;
+          canvas.height = targetH;
+        }
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.save();
+          ctx.scale(dpr, dpr);
+
+          renderSchoolMapCanvas({
+            ctx,
+            viewport: FULL_MAP_VIEWPORT,
+            floor: cur.viewingFloor,
+            phase: cur.phase,
+            unlockedObjects: cur.unlockedObjects,
+            finalSubstate: cur.finalSubstate,
+            player: {
+              x: engine ? engine.playerPos.x : cur.playerCoords.x,
+              z: engine ? engine.playerPos.z : cur.playerCoords.z,
+              yaw: engine ? engine.playerYaw : cur.playerCoords.yaw,
+              floor: engine ? engine.getCurrentFloor() : cur.playerCoords.floor,
+            },
+            variant: 'full',
+          });
+
+          ctx.restore();
+        }
+      }
+
+      rafId = requestAnimationFrame(renderFullMapFrame);
+    };
+
+    rafId = requestAnimationFrame(renderFullMapFrame);
+    return () => cancelAnimationFrame(rafId);
+  }, [activeTab, engineRef]);
 
   return (
     <div className="font-sans pointer-events-auto fixed inset-0 z-40 flex items-center justify-center bg-[#070a12]/82 backdrop-blur-md p-3 sm:p-6 overflow-y-auto">
@@ -134,7 +209,7 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
 
           {activeTab === 'map' ? (
             <div className="mt-4 space-y-3">
-              {/* Floor Selector + Exact 3D Marker Color Legend */}
+              {/* Selector de Piso + Leyenda Exacta Compartida con el Minimapa */}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   {([1, 2] as FloorNumber[]).map((fl) => (
@@ -154,7 +229,7 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
                   ))}
                 </div>
 
-                <div className="hidden sm:flex items-center gap-3 text-[11px] text-slate-300">
+                <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-300">
                   <span className="flex items-center gap-1.5">
                     <span
                       style={{ backgroundColor: MARKER_3D_COLORS.personaje.fill }}
@@ -179,46 +254,17 @@ export const SchoolMapModal: React.FC<SchoolMapModalProps> = ({
                 </div>
               </div>
 
-              {/* Official Architectural Map Image + Live Position Indicator */}
-              <div className="relative w-full overflow-hidden rounded-xl border border-[#7dd3fc]/30 bg-[#070a12] aspect-[16/10] flex items-center justify-center">
-                {!mapImgError[viewingFloor] ? (
-                  <img
-                    src={MAP_IMAGES[viewingFloor]}
-                    alt={`Plano arquitectónico del piso ${viewingFloor}`}
-                    referrerPolicy="no-referrer"
-                    onError={() =>
-                      setMapImgError((prev) => ({ ...prev, [viewingFloor]: true }))
-                    }
-                    className="h-full w-full object-contain"
-                  />
-                ) : (
-                  <div className="text-center p-6 text-slate-200">
-                    <p className="font-display text-lg font-semibold">
-                      Plano del {viewingFloor}° Piso
-                    </p>
-                    <p className="text-xs mt-1 text-[#bae6fd]/75">
-                      Ala Izquierda · Pasillo Central · Ala Derecha
-                    </p>
-                  </div>
-                )}
+              {/* Canvas Unificado del Plano Completo (idéntico al minimapa: mismos bounds, worldToMap y marcadores) */}
+              <div className="relative w-full overflow-hidden rounded-xl border border-[#7dd3fc]/35 bg-[#070a12] shadow-[inset_0_0_32px_rgba(13,24,41,0.75)]">
+                <canvas
+                  ref={fullMapCanvasRef}
+                  aria-label={`Plano interactivo del ${viewingFloor === 1 ? 'Primer Piso' : 'Segundo Piso'}`}
+                  className="block w-full h-auto aspect-[760/448]"
+                />
 
-                {viewingFloor === playerCoords.floor && (
-                  <div
-                    style={{
-                      left: `${radarLeftPct}%`,
-                      top: `${radarTopPct}%`,
-                    }}
-                    className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center"
-                  >
-                    <div className="h-7 w-7 rounded-full border-2 border-[#bae6fd] bg-[#070a12] text-white shadow-[0_0_16px_rgba(125,211,252,0.7)] flex items-center justify-center">
-                      <Navigation
-                        style={{ transform: `rotate(${-playerCoords.yaw}rad)` }}
-                        className="h-3.5 w-3.5 text-[#bae6fd]"
-                      />
-                    </div>
-                    <span className="mt-0.5 rounded bg-[#070a12]/90 border border-[#7dd3fc]/40 px-1.5 py-0.5 text-[10px] font-semibold text-[#bae6fd] whitespace-nowrap">
-                      Tú
-                    </span>
+                {viewingFloor !== playerCoords.floor && (
+                  <div className="pointer-events-none absolute bottom-2.5 right-3 rounded-lg border border-[#7dd3fc]/30 bg-[#070a12]/88 px-2.5 py-1 text-[10px] font-medium tracking-wide text-[#bae6fd]">
+                    Tu posición actual está en el {playerCoords.floor}° Piso
                   </div>
                 )}
               </div>

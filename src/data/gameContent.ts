@@ -373,6 +373,80 @@ export const WORLD_MARKERS: WorldMarker[] = [
     position: [10.8, 0, 1.35],
     requiredPhase: 'ESTADO_FINAL',
   },
+
+  // --- NPCs SECUNDARIOS (Prioridad 2° Piso + zonas despejadas 1° Piso, sin retrato) ---
+  {
+    id: 'personaje_npc_2f_oeste',
+    kind: 'personaje',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
+    label: 'Alumno de 3° año',
+    sublabel: 'Pasillo Ala Izquierda · 2° Piso',
+    floor: 2,
+    position: [-26.8, 0, -9.8],
+  },
+  {
+    id: 'personaje_npc_2f_norte_2a',
+    kind: 'personaje',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
+    label: 'Estudiante desorientado',
+    sublabel: 'Pasillo Principal · Frente a 2A',
+    floor: 2,
+    position: [-16.4, 0, -1.25],
+  },
+  {
+    id: 'personaje_npc_2f_centro_1',
+    kind: 'personaje',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
+    label: 'Alumna de 2° año',
+    sublabel: 'Pasillo Principal · 2° Piso',
+    floor: 2,
+    position: [-5.5, 0, 1.25],
+  },
+  {
+    id: 'personaje_npc_2f_centro_2',
+    kind: 'personaje',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
+    label: 'Delegado de 3° año',
+    sublabel: 'Pasillo Principal · 2° Piso',
+    floor: 2,
+    position: [4.2, 0, -1.25],
+  },
+  {
+    id: 'personaje_npc_2f_este_2d',
+    kind: 'personaje',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
+    label: 'Alumna distraída',
+    sublabel: 'Pasillo Principal · Frente a 2D',
+    floor: 2,
+    position: [17.5, 0, -1.25],
+  },
+  {
+    id: 'personaje_npc_2f_este_ala',
+    kind: 'personaje',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
+    label: 'Estudiante de guardia',
+    sublabel: 'Pasillo Ala Derecha · 2° Piso',
+    floor: 2,
+    position: [26.8, 0, -8.2],
+  },
+  {
+    id: 'personaje_npc_1f_este',
+    kind: 'personaje',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
+    label: 'Alumno de 3° año',
+    sublabel: 'Pasillo Principal · Frente a 1D',
+    floor: 1,
+    position: [14.5, 0, -1.25],
+  },
+  {
+    id: 'personaje_npc_1f_oeste',
+    kind: 'personaje',
+    glbFile: 'assets/glb/dpwii_parcial2_marcadores_persona.glb',
+    label: 'Alumna apresurada',
+    sublabel: 'Pasillo Ala Izquierda · 1° Piso',
+    floor: 1,
+    position: [-26.8, 0, -9.2],
+  },
 ];
 
 export const INITIAL_CLUES: ClueRecord[] = [
@@ -1034,6 +1108,95 @@ export function resolveMarkerDialogue(
       }
       return null;
     }
+
+    // ================= NPCs SECUNDARIOS (SIN RETRATO) =================
+    case 'personaje_npc_2f_oeste':
+      return {
+        markerId,
+        speakerName: 'Alumno de 3° año',
+        speakerRole: 'Pasillo Ala Izquierda · 2° Piso',
+        lines: [
+          '¿Otro de primer ingreso dando vueltas por el segundo piso? Los de tercero ya ni nos sorprendemos de verlos perdidos el primer día.',
+          'Si buscas un salón fantasma, ten cuidado con lo que preguntas; aquí arriba a veces contestan del otro lado de puertas cerradas.',
+        ],
+      };
+
+    case 'personaje_npc_2f_norte_2a':
+      return {
+        markerId,
+        speakerName: 'Estudiante desorientado',
+        speakerRole: 'Pasillo Principal · Frente a 2A',
+        lines: [
+          'Llevo diez minutos mirando entre la 2A y la 2B y siento que el pasillo se hace más largo... ¿Tú tampoco encuentras tu nombre abajo?',
+          'Dicen en voz baja que los que sobramos en las listas terminamos asignados a un salón que ni siquiera figura en los planos oficiales.',
+        ],
+      };
+
+    case 'personaje_npc_2f_centro_1':
+      return {
+        markerId,
+        speakerName: 'Alumna de 2° año',
+        speakerRole: 'Pasillo Principal · 2° Piso',
+        lines: [
+          'Shh... ¿no escuchaste ese golpe seco hace un instante? A veces suena como si alguien caminara dentro de los salones con candado.',
+          'Entre las chicas del segundo piso corre el rumor de un supuesto "Aula 404", aunque todos juran que la numeración acaba en 2D.',
+        ],
+      };
+
+    case 'personaje_npc_2f_centro_2':
+      return {
+        markerId,
+        speakerName: 'Delegado de 3° año',
+        speakerRole: 'Pasillo Principal · 2° Piso',
+        lines: [
+          'Vaya cara de perdido traes... En mis tiempos al menos sabíamos leer un tablero antes de subir hasta acá como alma en pena.',
+          'Aunque, si de verdad te falta salón, revisa bien hacia las alas del fondo; dicen que los de arriba ocultan listas viejas.',
+        ],
+      };
+
+    case 'personaje_npc_2f_este_2d':
+      return {
+        markerId,
+        speakerName: 'Alumna distraída',
+        speakerRole: 'Pasillo Principal · Frente a 2D',
+        lines: [
+          'Perdón... estaba viendo por la ventana y juraría que vi una silueta parada frente a la 2C hace un segundo, pero ya no hay nadie.',
+          'El viento en este piso suena igual que un susurro llamando por lista... mejor no te quedes quieto mucho tiempo junto al vidrio.',
+        ],
+      };
+
+    case 'personaje_npc_2f_este_ala':
+      return {
+        markerId,
+        speakerName: 'Estudiante de guardia',
+        speakerRole: 'Pasillo Ala Derecha · 2° Piso',
+        lines: [
+          'Si vas hacia los baños del fondo, ten cuidado con la penumbra; desde aquí se oye gotear el agua incluso cuando nadie abre las llaves.',
+          'Unos alumnos comentaban que alguien dejó un mensaje escrito en el espejo, pero con la claridad de afuera cuesta distinguirlo.',
+        ],
+      };
+
+    case 'personaje_npc_1f_este':
+      return {
+        markerId,
+        speakerName: 'Alumno de 3° año',
+        speakerRole: 'Pasillo Principal · Frente a 1D',
+        lines: [
+          '¿Buscando salón todavía, novato? Qué calma la tuya... Cuando yo entré al menos no aparecía gente hablando de un cuarto piso inexistente.',
+          'Alguien en la 1D aseguraba haber escuchado el nombre "Aula 404" entre susurros, aunque en este edificio solo tenemos dos plantas.',
+        ],
+      };
+
+    case 'personaje_npc_1f_oeste':
+      return {
+        markerId,
+        speakerName: 'Alumna apresurada',
+        speakerRole: 'Pasillo Ala Izquierda · 1° Piso',
+        lines: [
+          'Voy de salida hacia el patio, este pasillo da escalofríos cuando oscurece... Siento que alguien nos observa desde las ventanas.',
+          'Si vas a hablar con el conserje o subes al segundo piso, no ignores los rumores; aquí cada puerta cerrada parece esconder algo.',
+        ],
+      };
 
     default:
       return null;

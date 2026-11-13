@@ -195,7 +195,7 @@ export default function App() {
 
       setIsStairTransitioning(true);
       soundEngine.playStairsTransition();
-      soundEngine.fadeOutBgm(0.35, { targetVolume: 0.14 });
+      soundEngine.fadeOutBgm(0.35, { targetVolume: 0.18 });
 
       void ejecutarTransicionEscalera(direccion, () => {
         // Cambio de piso y reposicionamiento de cámara 3D ejecutado con pantalla 100% en negro
@@ -204,7 +204,7 @@ export default function App() {
         setPlayerCoords({ x: spawn[0], z: spawn[2], yaw, floor: nextFloor });
       }).finally(() => {
         setIsStairTransitioning(false);
-        soundEngine.fadeInBgm(0.7, 0.32);
+        soundEngine.fadeInBgm(0.7);
         showLocationNotice(nextFloor);
       });
     },
@@ -278,7 +278,7 @@ export default function App() {
         if (marker.challengeType === 'gyro_profesor') {
           void sensorService.enableGyroscope();
         }
-        soundEngine.fadeOutBgm(0.5, { targetVolume: 0.14 });
+        soundEngine.fadeOutBgm(0.5, { targetVolume: 0.18 });
         setActiveChallenge(marker.challengeType);
       }
     },
@@ -442,7 +442,7 @@ export default function App() {
       sensorService.disableGyroscope();
     }
     setActiveChallenge(null);
-    soundEngine.fadeInBgm(0.75, 0.32);
+    soundEngine.fadeInBgm(0.75);
     // Abre la lectura final del hallazgo del sensor; al cerrarla se ejecutará onFinishSensorInteraction
     setActiveDialogue(POST_CHALLENGE_DIALOGUES[completedType]);
   };
@@ -480,7 +480,7 @@ export default function App() {
     setCurrentFloor(1);
     engineRef.current?.setFinalSubstate('pendiente');
     engineRef.current?.setFloor(1, [-1.5, 0, 6.0], 0, { silentFloorNotice: true });
-    soundEngine.fadeInBgm(1.2, 0.32);
+    soundEngine.fadeInBgm(1.2);
     lastNotifiedFloorRef.current = null;
     showLocationNotice(1);
     showToast('Historia reiniciada · Primer día de clases');
@@ -499,6 +499,9 @@ export default function App() {
       >
         {/* Dedicated Isolated WebGL Canvas Container */}
         <div ref={canvasContainerRef} className="fixed inset-0 z-0 h-full w-full" />
+
+        {/* Viñeta radial cinemática sutil de costo cero sobre la escena 3D */}
+        <div className="scene-cinematic-vignette pointer-events-none fixed inset-0 z-[1]" aria-hidden="true" />
 
         {/* Botón discreto de silencio en esquina superior izquierda (misma estética Title Screen) */}
         {isSceneHudMounted &&
@@ -609,7 +612,7 @@ export default function App() {
               sensorService.disableGyroscope();
             }
             setActiveChallenge(null);
-            soundEngine.fadeInBgm(0.65, 0.32);
+            soundEngine.fadeInBgm(0.65);
           }}
         />
       )}
@@ -618,7 +621,11 @@ export default function App() {
       {mapModalTab && (
         <SchoolMapModal
           initialTab={mapModalTab}
+          engineRef={engineRef}
           currentFloor={currentFloor}
+          phase={phase}
+          unlockedObjects={unlockedObjects}
+          finalSubstate={finalSubstate}
           playerCoords={playerCoords}
           clues={clues}
           phaseIndicator={activePhaseIndicator}
@@ -633,7 +640,7 @@ export default function App() {
           clues={clues}
           onKeepExploring={() => {
             setShowEndingModal(false);
-            soundEngine.fadeInBgm(1.0, 0.32);
+            soundEngine.fadeInBgm(1.0);
           }}
           onCaptureMemento={handleCapturePhoto}
           onRestart={handleRestartStory}

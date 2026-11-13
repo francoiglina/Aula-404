@@ -21,11 +21,11 @@ class SoundEngine {
   private rewardGain: GainNode | null = null;
   public isMuted: boolean = false;
 
-  // Niveles nominales de mezcla: BGM ambiental tenue (0.32) para no tapar pasos, UI ni pistas
-  private readonly bgmBaseGain = 0.32;
-  private bgmTargetVolume = 0.32;
-  private readonly sfxBaseGain = 0.42;
-  private readonly rewardBaseGain = 0.72;
+  // Niveles nominales de mezcla: BGM ambiental con mayor presencia (0.45) sin opacar pasos, UI ni pistas
+  private readonly bgmBaseGain = 0.45;
+  private bgmTargetVolume = 0.45;
+  private readonly sfxBaseGain = 0.48;
+  private readonly rewardBaseGain = 0.78;
 
   // Estado del bucle ambiental school_bgm.mp3 (THREE.Audio + THREE.AudioLoader)
   private isBgmLoading: boolean = false;
@@ -41,7 +41,7 @@ class SoundEngine {
   public readonly footsteps = new FootstepAudioSystem({
     baseCooldownSec: 0.37,
     minTriggerGapMs: 220,
-    baseVolume: 0.88,
+    baseVolume: 0.9,
     volumeVariation: 0.08,
     pitchVariation: 0.04,
   });
@@ -62,9 +62,9 @@ class SoundEngine {
   private activeSuccessSource: AudioBufferSourceNode | null = null;
   private duckRestoreTimer: number | null = null;
 
-  private readonly confirmBufferVolume = 0.6;
-  private readonly confirmHtmlVolume = 0.25;
-  private readonly sensorSuccessHtmlVolume = 0.66;
+  private readonly confirmBufferVolume = 0.64;
+  private readonly confirmHtmlVolume = 0.28;
+  private readonly sensorSuccessHtmlVolume = 0.68;
 
   constructor() {
     if (typeof window !== 'undefined') {

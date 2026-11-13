@@ -1,19 +1,27 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { WALKABLE_ZONES, WORLD_MARKERS } from '../data/gameContent';
 import { sensorService } from '../services/sensorService';
 import { soundEngine } from '../services/soundEngine';
 import { FinalSubstate, FloorNumber, GamePhase, WalkableRect, WorldMarker } from '../types';
 import { createGlbMarkerInstance, GlbMarkerInstance } from './Aula404MarkerViewer';
 import {
+  createCeilingPlankTexture,
   createCharacterStandeeTexture,
+  createConcreteBlockWallTexture,
   createLockerTexture,
-  createMarkerPlaqueTexture,
+  createOutdoorConcretePbrMaps,
   createSchoolWallTexture,
   createSlidingDoorTexture,
   createStoneTileTexture,
-  createWoodPlankTexture,
+  createWoodFloorPbrMaps,
+  createWoodenSignTexture,
 } from './proceduralTextures';
+import { AtmosphericSkyboxHandle, createAtmosphericSkybox } from './skybox';
 
 interface EngineCallbacks {
   onNearbyMarkerChange: (marker: WorldMarker | null) => void;
@@ -65,6 +73,12 @@ export class SchoolEngine {
   public scene: THREE.Scene;
   public camera: THREE.PerspectiveCamera;
   private isSoftwareGl: boolean;
+  private composer: EffectComposer | null = null;
+  private bloomPass: UnrealBloomPass | null = null;
+  private sunLight: THREE.DirectionalLight | null = null;
+  private skybox: AtmosphericSkyboxHandle | null = null;
+  private readonly sunOffset = new THREE.Vector3(6.5, 9.5, -16);
+  private sharedTextures: THREE.Texture[] = [];
 
   private floor1Group = new THREE.Group();
   private floor2Group = new THREE.Group();
@@ -106,22 +120,15 @@ export class SchoolEngine {
     scatter: number;
   }> = [];
   private windChimeGroup: THREE.Group | null = null;
-  private acousticParticles: THREE.Points | null = null;
   private hanakoMirrorMat: THREE.MeshStandardMaterial | null = null;
   private hanakoSealRing: THREE.Mesh | null = null;
   private astrolabeOuterGimbal: THREE.Group | null = null;
   private astrolabeInnerGimbal: THREE.Group | null = null;
   private astrolabeLidPivot: THREE.Group | null = null;
 
-  // Destination classroom door (Salón 2C, 2° Piso) for final two-step sequence
+  // Destination classroom door (Aula 2C, 2° Piso) for final two-step sequence
   private destDoorGroup: THREE.Group | null = null;
   private destDoorPanel: THREE.Mesh | null = null;
-  private destDoorMat: THREE.MeshStandardMaterial | null = null;
-  private destDoorPlaqueMat: THREE.MeshBasicMaterial | null = null;
-  private destDoorLockedTex: THREE.CanvasTexture | null = null;
-  private destDoorUnlockedTex: THREE.CanvasTexture | null = null;
-  private destPlaqueLockedTex: THREE.CanvasTexture | null = null;
-  private destPlaqueUnlockedTex: THREE.CanvasTexture | null = null;
   private destDoorThresholdRing: THREE.Mesh | null = null;
 
   private readonly destinationDoorMarker: WorldMarker = {
@@ -148,13 +155,13 @@ export class SchoolEngine {
     this.isSoftwareGl = detectSoftwareWebGL();
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#131110');
-    this.scene.fog = new THREE.FogExp2('#131110', 0.032);
+    this.scene.background = new THREE.Color('#0c1315');
+    this.scene.fog = new THREE.FogExp2('#0c1315', 0.036);
 
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || window.innerHeight;
 
-    this.camera = new THREE.PerspectiveCamera(68, width / height, 0.1, 85);
+    this.camera = new THREE.PerspectiveCamera(68, width / height, 0.1, 160);
     this.camera.position.copy(this.playerPos);
     soundEngine.attachCamera(this.camera);
 
@@ -166,7 +173,7 @@ export class SchoolEngine {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.toneMappingExposure = 0.96;
     // SDD Section 2.2: Strict mobile pixelRatio cap at 2
     this.renderer.setPixelRatio(this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setSize(width, height);
@@ -178,15 +185,23 @@ export class SchoolEngine {
     container.innerHTML = '';
     container.appendChild(this.renderer.domElement);
 
-    // Studio environment map for realistic wood/brass/glass reflections
+    // Entorno PBR ligero (RoomEnvironment) con baja intensidad para reflejos sutiles en madera oscura
     const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.34;
     pmremGenerator.dispose();
+
+    // Skybox / Domo atmosférico nocturno coherente con la niebla y la estética japonesa fría
+    this.skybox = createAtmosphericSkybox(95);
+    this.scene.add(this.skybox.mesh);
 
     this.setupLighting();
     this.buildSchoolArchitecture();
+    this.applyArchitecturalPbrPass();
     this.buildMarkers();
     this.setFloor(1, [-1.5, 0, 6.0], 0, { silentFloorNotice: true });
+    this.updateSunShadowTracking();
+    this.setupPostProcessing(width, height);
 
     if (!this.isSoftwareGl) {
       this.renderer.compile(this.scene, this.camera);
@@ -197,119 +212,251 @@ export class SchoolEngine {
     this.scheduleNextFrame();
   }
 
+  private setupPostProcessing(width: number, height: number) {
+    if (this.isSoftwareGl) return;
+
+    const composer = new EffectComposer(this.renderer);
+    composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    composer.setSize(width, height);
+
+    const renderPass = new RenderPass(this.scene, this.camera);
+    composer.addPass(renderPass);
+
+    // Bloom sutil de bajo costo (threshold 0.85) para plafones fríos, ventanas y halos neón
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(width, height),
+      0.34,
+      0.4,
+      0.85
+    );
+    composer.addPass(bloomPass);
+
+    const outputPass = new OutputPass();
+    composer.addPass(outputPass);
+
+    this.composer = composer;
+    this.bloomPass = bloomPass;
+  }
+
   private setupLighting() {
-    // Cool twilight sky vs warm wooden floor hemisphere fill
-    const hemiLight = new THREE.HemisphereLight('#c7d2fe', '#573b26', 0.72);
+    // Penumbra fría superior vs rebote oscuro de madera inferior
+    const hemiLight = new THREE.HemisphereLight('#8ea6b4', '#261e16', 0.56);
     this.scene.add(hemiLight);
 
-    // Warm golden-hour directional sunlight slanting through courtyard windows
-    const sunLight = new THREE.DirectionalLight('#ffedd5', 1.35);
-    sunLight.position.set(14, 24, -18);
+    // Única luz direccional principal entrando en diagonal por los ventanales del patio
+    const sunLight = new THREE.DirectionalLight('#ffebd2', 2.05);
+    sunLight.position.set(
+      this.playerPos.x + this.sunOffset.x,
+      this.sunOffset.y,
+      this.playerPos.z + this.sunOffset.z
+    );
     if (!this.isSoftwareGl) {
       sunLight.castShadow = true;
       sunLight.shadow.mapSize.set(1024, 1024);
-      sunLight.shadow.camera.near = 2;
-      sunLight.shadow.camera.far = 70;
-      sunLight.shadow.camera.left = -34;
-      sunLight.shadow.camera.right = 34;
-      sunLight.shadow.camera.top = 34;
-      sunLight.shadow.camera.bottom = -34;
+      sunLight.shadow.camera.near = 1;
+      sunLight.shadow.camera.far = 48;
+      sunLight.shadow.camera.left = -16;
+      sunLight.shadow.camera.right = 16;
+      sunLight.shadow.camera.top = 16;
+      sunLight.shadow.camera.bottom = -16;
       sunLight.shadow.bias = -0.0005;
       sunLight.shadow.normalBias = 0.02;
     }
     this.scene.add(sunLight);
+    this.scene.add(sunLight.target);
+    this.sunLight = sunLight;
+  }
 
-    // Subtle rim light from south Genkan entrance
-    const rimLight = new THREE.DirectionalLight('#fb923c', 0.45);
-    rimLight.position.set(-8, 10, 18);
-    this.scene.add(rimLight);
+  private updateSunShadowTracking() {
+    if (!this.sunLight) return;
+    // Cuantiza a pasos de 0.5m para evitar parpadeo en el shadow map 1024x1024
+    const snapX = Math.round(this.playerPos.x * 2) * 0.5;
+    const snapZ = Math.round(this.playerPos.z * 2) * 0.5;
+    this.sunLight.target.position.set(snapX, 0, snapZ);
+    this.sunLight.position.set(
+      snapX + this.sunOffset.x,
+      this.sunOffset.y,
+      snapZ + this.sunOffset.z
+    );
+    this.sunLight.target.updateMatrixWorld();
   }
 
   private buildSchoolArchitecture() {
     const maxAniso = this.renderer.capabilities.getMaxAnisotropy();
-    const woodTex = createWoodPlankTexture(maxAniso);
+    const floorMaps = createWoodFloorPbrMaps(maxAniso);
+
+    const woodTex = floorMaps.map;
     woodTex.repeat.set(16, 2);
+    const woodRoughMap = floorMaps.roughnessMap;
+    woodRoughMap.repeat.set(16, 2);
+    const woodBumpMap = floorMaps.bumpMap;
+    woodBumpMap.repeat.set(16, 2);
 
-    const wingWoodTex = createWoodPlankTexture(maxAniso);
+    const wingWoodTex = woodTex.clone();
     wingWoodTex.repeat.set(2, 8);
+    wingWoodTex.needsUpdate = true;
+    const wingRoughMap = woodRoughMap.clone();
+    wingRoughMap.repeat.set(2, 8);
+    wingRoughMap.needsUpdate = true;
+    const wingBumpMap = woodBumpMap.clone();
+    wingBumpMap.repeat.set(2, 8);
+    wingBumpMap.needsUpdate = true;
 
-    const roomWoodTex = createWoodPlankTexture(maxAniso);
+    const roomWoodTex = woodTex.clone();
     roomWoodTex.repeat.set(3, 3);
+    roomWoodTex.needsUpdate = true;
+    const roomRoughMap = woodRoughMap.clone();
+    roomRoughMap.repeat.set(3, 3);
+    roomRoughMap.needsUpdate = true;
+    const roomBumpMap = woodBumpMap.clone();
+    roomBumpMap.repeat.set(3, 3);
+    roomBumpMap.needsUpdate = true;
 
-    const stoneTex = createStoneTileTexture(maxAniso, '#363432', '#1f1d1b');
+    const ceilingTex = createCeilingPlankTexture(maxAniso);
+    ceilingTex.repeat.set(14, 2);
+
+    const stoneTex = createStoneTileTexture(maxAniso, '#272928', '#151717');
     stoneTex.repeat.set(4, 4);
 
-    const bathTileTex = createStoneTileTexture(maxAniso, '#cfd8dc', '#90a4ae');
+    const bathTileTex = createStoneTileTexture(maxAniso, '#8d9b9d', '#586668');
     bathTileTex.repeat.set(5, 5);
 
     const wallTex = createSchoolWallTexture(maxAniso);
     wallTex.repeat.set(8, 1);
 
-    const shortWallTex = createSchoolWallTexture(maxAniso);
+    const shortWallTex = wallTex.clone();
     shortWallTex.repeat.set(2, 1);
+    shortWallTex.needsUpdate = true;
 
     const lockerTex = createLockerTexture(maxAniso);
+    const doorTex = createSlidingDoorTexture(maxAniso);
+
+    this.sharedTextures.push(
+      woodTex,
+      woodRoughMap,
+      woodBumpMap,
+      wingWoodTex,
+      wingRoughMap,
+      wingBumpMap,
+      roomWoodTex,
+      roomRoughMap,
+      roomBumpMap,
+      ceilingTex,
+      stoneTex,
+      bathTileTex,
+      wallTex,
+      shortWallTex,
+      lockerTex,
+      doorTex
+    );
 
     const woodFloorMat = new THREE.MeshStandardMaterial({
       map: woodTex,
-      roughness: 0.55,
+      roughnessMap: woodRoughMap,
+      bumpMap: woodBumpMap,
+      bumpScale: 0.018,
+      roughness: 0.95,
       metalness: 0.05,
+      envMapIntensity: 0.38,
     });
     const wingFloorMat = new THREE.MeshStandardMaterial({
       map: wingWoodTex,
-      roughness: 0.55,
+      roughnessMap: wingRoughMap,
+      bumpMap: wingBumpMap,
+      bumpScale: 0.018,
+      roughness: 0.95,
       metalness: 0.05,
+      envMapIntensity: 0.38,
     });
     const roomFloorMat = new THREE.MeshStandardMaterial({
       map: roomWoodTex,
-      roughness: 0.52,
-      metalness: 0.06,
+      roughnessMap: roomRoughMap,
+      bumpMap: roomBumpMap,
+      bumpScale: 0.016,
+      roughness: 0.95,
+      metalness: 0.05,
+      envMapIntensity: 0.35,
     });
     const stoneFloorMat = new THREE.MeshStandardMaterial({
       map: stoneTex,
-      roughness: 0.82,
+      roughness: 0.84,
       metalness: 0.04,
+      envMapIntensity: 0.3,
     });
     const bathFloorMat = new THREE.MeshStandardMaterial({
       map: bathTileTex,
-      roughness: 0.28,
+      roughness: 0.32,
       metalness: 0.08,
+      envMapIntensity: 0.42,
     });
     const wallLongMat = new THREE.MeshStandardMaterial({
       map: wallTex,
-      roughness: 0.78,
+      roughness: 0.88,
       metalness: 0.02,
+      envMapIntensity: 0.3,
     });
     const wallShortMat = new THREE.MeshStandardMaterial({
       map: shortWallTex,
-      roughness: 0.78,
+      roughness: 0.88,
       metalness: 0.02,
+      envMapIntensity: 0.3,
     });
     const ceilingMat = new THREE.MeshStandardMaterial({
-      color: '#e7e0d2',
-      roughness: 0.9,
-      metalness: 0.0,
+      map: ceilingTex,
+      roughness: 0.74,
+      metalness: 0.04,
+      envMapIntensity: 0.25,
     });
     const cedarTimberMat = new THREE.MeshStandardMaterial({
-      color: '#432916',
+      color: '#2b2b22',
       roughness: 0.65,
-      metalness: 0.05,
+      metalness: 0.04,
+      envMapIntensity: 0.35,
+    });
+    const slidingDoorMat = new THREE.MeshStandardMaterial({
+      map: doorTex,
+      roughness: 0.64,
+      metalness: 0.04,
+      envMapIntensity: 0.35,
     });
 
     this.scene.add(this.floor1Group);
     this.scene.add(this.floor2Group);
+
+    const stairTreadTex = woodTex.clone();
+    stairTreadTex.repeat.set(1.2, 0.35);
+    stairTreadTex.needsUpdate = true;
+    const stairRoughMap = woodRoughMap.clone();
+    stairRoughMap.repeat.set(1.2, 0.35);
+    stairRoughMap.needsUpdate = true;
+    const stairBumpMap = woodBumpMap.clone();
+    stairBumpMap.repeat.set(1.2, 0.35);
+    stairBumpMap.needsUpdate = true;
+
+    const stairTreadMat = new THREE.MeshStandardMaterial({
+      map: stairTreadTex,
+      roughnessMap: stairRoughMap,
+      bumpMap: stairBumpMap,
+      bumpScale: 0.016,
+      roughness: 0.92,
+      metalness: 0.04,
+      envMapIntensity: 0.34,
+    });
+    this.sharedTextures.push(stairTreadTex, stairRoughMap, stairBumpMap);
 
     // Build shared U-shape structure for Floor 1 and Floor 2
     this.populateFloorBase(this.floor1Group, 1, {
       woodFloorMat,
       wingFloorMat,
       roomFloorMat,
+      stairTreadMat,
       stoneFloorMat,
       bathFloorMat,
       wallLongMat,
       wallShortMat,
       ceilingMat,
       cedarTimberMat,
+      slidingDoorMat,
       lockerTex,
       maxAniso,
     });
@@ -318,12 +465,14 @@ export class SchoolEngine {
       woodFloorMat,
       wingFloorMat,
       roomFloorMat,
+      stairTreadMat,
       stoneFloorMat,
       bathFloorMat,
       wallLongMat,
       wallShortMat,
       ceilingMat,
       cedarTimberMat,
+      slidingDoorMat,
       lockerTex,
       maxAniso,
     });
@@ -331,6 +480,31 @@ export class SchoolEngine {
     // Build unique interactive story rooms & sensor-reactive props
     this.buildFloor1Props(maxAniso, cedarTimberMat);
     this.buildFloor2Props(maxAniso, cedarTimberMat);
+  }
+
+  /**
+   * Ajusta envMapIntensity sobre los materiales arquitectónicos antes de instanciar marcadores .glb,
+   * garantizando que los marcadores interactivos conserven intactos sus materiales originales.
+   */
+  private applyArchitecturalPbrPass() {
+    const applyOnFloor = (group: THREE.Group) => {
+      group.traverse((obj) => {
+        if (obj.userData?.isInteractiveMarker) return;
+        if (!(obj as THREE.Mesh).isMesh) return;
+        const mesh = obj as THREE.Mesh;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach((mat) => {
+          if (mat && (mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
+            const std = mat as THREE.MeshStandardMaterial;
+            std.envMapIntensity = Math.min(std.envMapIntensity ?? 0.35, 0.42);
+            std.needsUpdate = true;
+          }
+        });
+      });
+    };
+
+    applyOnFloor(this.floor1Group);
+    applyOnFloor(this.floor2Group);
   }
 
   private addBoxWall(
@@ -357,12 +531,14 @@ export class SchoolEngine {
       woodFloorMat: THREE.Material;
       wingFloorMat: THREE.Material;
       roomFloorMat: THREE.Material;
+      stairTreadMat: THREE.Material;
       stoneFloorMat: THREE.Material;
       bathFloorMat: THREE.Material;
       wallLongMat: THREE.Material;
       wallShortMat: THREE.Material;
       ceilingMat: THREE.Material;
       cedarTimberMat: THREE.Material;
+      slidingDoorMat: THREE.Material;
       lockerTex: THREE.CanvasTexture;
       maxAniso: number;
     }
@@ -381,42 +557,45 @@ export class SchoolEngine {
     mainCeiling.position.set(0, wallH, 0);
     group.add(mainCeiling);
 
-    // Warm fluorescent ceiling fixtures along Main Corridor
-    const lampGeo = new THREE.BoxGeometry(1.5, 0.08, 0.35);
+    // Plafones fluorescentes de pasillo en tono frío pálido (activan Bloom sutil sobre penumbra)
+    const lampGeo = new THREE.BoxGeometry(1.45, 0.07, 0.34);
     const lampMat = new THREE.MeshStandardMaterial({
-      color: '#fffbeb',
-      emissive: '#fde68a',
-      emissiveIntensity: 1.2,
-      roughness: 0.2,
+      color: '#e0f2fe',
+      emissive: '#bae6fd',
+      emissiveIntensity: 1.65,
+      roughness: 0.18,
     });
     for (let lx = -22; lx <= 22; lx += 8.8) {
       const lamp = new THREE.Mesh(lampGeo, lampMat);
-      lamp.position.set(lx, wallH - 0.05, 0);
+      lamp.position.set(lx, wallH - 0.04, 0);
       group.add(lamp);
     }
 
-    // Cedar structural pillars along corridor
+    // Pilares estructurales de madera oscura a lo largo del corredor
     const pillarGeo = new THREE.BoxGeometry(0.24, wallH, 0.24);
     for (let px = -24; px <= 24; px += 6) {
       if (floor === 1 && Math.abs(px) < 5.5) continue;
       const pNorth = new THREE.Mesh(pillarGeo, mats.cedarTimberMat);
       pNorth.position.set(px, wallH / 2, -2.3);
+      pNorth.castShadow = !this.isSoftwareGl;
       group.add(pNorth);
 
       const pSouth = new THREE.Mesh(pillarGeo, mats.cedarTimberMat);
       pSouth.position.set(px, wallH / 2, 2.3);
+      pSouth.castShadow = !this.isSoftwareGl;
       group.add(pSouth);
     }
 
-    // North Wall of Main Corridor (with central vestibule bump-out on 1F)
+    // North Wall of Main Corridor con vanos reales de ventana hacia el patio para proyectar haces de luz
     if (floor === 1) {
-      this.addBoxWall(group, -14.8, wallH / 2, -2.4, 18.4, wallH, 0.25, mats.wallLongMat);
-      this.addBoxWall(group, 14.8, wallH / 2, -2.4, 18.4, wallH, 0.25, mats.wallLongMat);
+      this.buildNorthCorridorWallWithWindows(group, -24.0, -5.6, -2.4, wallH, [-18.5, -11.5], mats.wallLongMat);
+      this.buildNorthCorridorWallWithWindows(group, 5.6, 24.0, -2.4, wallH, [11.5, 18.5], mats.wallLongMat);
 
       // 1F Vestibule North Alcove (x: -5.6..5.6, z: -4.2..2.4)
       const vestFloor = new THREE.Mesh(new THREE.PlaneGeometry(11.2, 4.4), mats.roomFloorMat);
       vestFloor.rotation.x = -Math.PI / 2;
       vestFloor.position.set(0, 0.005, -2.1);
+      vestFloor.receiveShadow = !this.isSoftwareGl;
       group.add(vestFloor);
 
       const vestCeil = new THREE.Mesh(new THREE.PlaneGeometry(11.2, 12.2), mats.ceilingMat);
@@ -432,6 +611,7 @@ export class SchoolEngine {
       const genkanFloor = new THREE.Mesh(new THREE.PlaneGeometry(11.2, 5.2), mats.stoneFloorMat);
       genkanFloor.rotation.x = -Math.PI / 2;
       genkanFloor.position.set(0, 0.008, 5.0);
+      genkanFloor.receiveShadow = !this.isSoftwareGl;
       group.add(genkanFloor);
 
       // Genkan Side & South Entrance Walls
@@ -442,12 +622,14 @@ export class SchoolEngine {
       // 3 Traditional Getabako Shoe-Locker Islands creating the 4 aisles on Map 1
       const lockerMat = new THREE.MeshStandardMaterial({
         map: mats.lockerTex,
-        roughness: 0.62,
-        metalness: 0.06,
+        roughness: 0.65,
+        metalness: 0.05,
+        envMapIntensity: 0.34,
       });
       const lockerTopMat = new THREE.MeshStandardMaterial({
-        color: '#4e331e',
-        roughness: 0.5,
+        color: '#2b241b',
+        roughness: 0.58,
+        envMapIntensity: 0.35,
       });
       this.shoeLockerColliders = [];
       const bodyW = 1.1;
@@ -460,6 +642,7 @@ export class SchoolEngine {
         const body = new THREE.Mesh(new THREE.BoxGeometry(bodyW, bodyH, bodyD), lockerMat);
         body.position.y = bodyH / 2;
         body.castShadow = !this.isSoftwareGl;
+        body.receiveShadow = !this.isSoftwareGl;
         island.add(body);
 
         const cap = new THREE.Mesh(new THREE.BoxGeometry(bodyW + 0.06, 0.08, bodyD + 0.06), lockerTopMat);
@@ -480,16 +663,24 @@ export class SchoolEngine {
         );
       });
     } else {
-      // 2F Continuous North & Center-South Corridor Walls
-      this.addBoxWall(group, 0, wallH / 2, -2.4, 48.0, wallH, 0.25, mats.wallLongMat);
+      // 2F North Wall con los mismos vanos de ventana + Center-South Corridor Wall
+      this.buildNorthCorridorWallWithWindows(
+        group,
+        -24.0,
+        24.0,
+        -2.4,
+        wallH,
+        [-18.5, -11.5, 11.5, 18.5],
+        mats.wallLongMat
+      );
       this.addBoxWall(group, 0, wallH / 2, 2.4, 11.4, wallH, 0.25, mats.wallShortMat);
     }
 
-    // Courtyard Windows along North Corridor Wall
-    this.addCorridorWindows(group, -18.5, -2.26, mats.cedarTimberMat);
-    this.addCorridorWindows(group, -11.5, -2.26, mats.cedarTimberMat);
-    this.addCorridorWindows(group, 11.5, -2.26, mats.cedarTimberMat);
-    this.addCorridorWindows(group, 18.5, -2.26, mats.cedarTimberMat);
+    // Courtyard Windows along North Corridor Wall (con montantes que proyectan sombras reales)
+    this.addCorridorWindows(group, -18.5, -2.32, mats.cedarTimberMat);
+    this.addCorridorWindows(group, -11.5, -2.32, mats.cedarTimberMat);
+    this.addCorridorWindows(group, 11.5, -2.32, mats.cedarTimberMat);
+    this.addCorridorWindows(group, 18.5, -2.32, mats.cedarTimberMat);
 
     // South Corridor Walls (flanking Genkan & Staircase pockets)
     // West end cap
@@ -503,13 +694,13 @@ export class SchoolEngine {
     this.addBoxWall(group, 14.35, wallH / 2, 2.4, 17.5, wallH, 0.25, mats.wallLongMat);
     this.addBoxWall(group, 27.35, wallH / 2, 2.4, 2.1, wallH, 0.25, mats.wallShortMat);
 
-    // Closed Classroom Doors along South Corridor (1A-1D on 1F, 2A-2D on 2F)
+    // Classroom Doors along South Corridor (Aula 1A-1D on 1F, Aula 2A-2D on 2F)
     const prefix = floor === 1 ? '1' : '2';
     const classrooms = [
-      { code: `${prefix}A`, label: `Salón ${prefix}A`, x: -18.2 },
-      { code: `${prefix}B`, label: `Salón ${prefix}B`, x: -10.8 },
-      { code: `${prefix}C`, label: `Salón ${prefix}C`, x: 10.8 },
-      { code: `${prefix}D`, label: `Salón ${prefix}D`, x: 18.2 },
+      { code: `${prefix}A`, label: `Aula ${prefix}A`, x: -18.2 },
+      { code: `${prefix}B`, label: `Aula ${prefix}B`, x: -10.8 },
+      { code: `${prefix}C`, label: `Aula ${prefix}C`, x: 10.8 },
+      { code: `${prefix}D`, label: `Aula ${prefix}D`, x: 18.2 },
     ];
     classrooms.forEach((cls) => {
       const isDestinationDoor = floor === 2 && cls.code === '2C';
@@ -519,9 +710,9 @@ export class SchoolEngine {
         2.26,
         Math.PI,
         cls.label,
-        false,
         mats.maxAniso,
         mats.cedarTimberMat,
+        mats.slidingDoorMat,
         isDestinationDoor
       );
     });
@@ -534,6 +725,7 @@ export class SchoolEngine {
     const westWingFloor = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 20.6), mats.wingFloorMat);
     westWingFloor.rotation.x = -Math.PI / 2;
     westWingFloor.position.set(-26.0, 0.002, -8.1);
+    westWingFloor.receiveShadow = !this.isSoftwareGl;
     group.add(westWingFloor);
 
     const westWingCeil = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 20.6), mats.ceilingMat);
@@ -553,6 +745,7 @@ export class SchoolEngine {
       wallH,
       floor === 1 ? 'Armario de Limpieza' : 'Sala de Profesores',
       mats.cedarTimberMat,
+      mats.slidingDoorMat,
       mats.maxAniso
     );
 
@@ -560,6 +753,7 @@ export class SchoolEngine {
     const westRoomFloor = new THREE.Mesh(new THREE.PlaneGeometry(7.0, 6.8), mats.roomFloorMat);
     westRoomFloor.rotation.x = -Math.PI / 2;
     westRoomFloor.position.set(-26.0, 0.004, -21.4);
+    westRoomFloor.receiveShadow = !this.isSoftwareGl;
     group.add(westRoomFloor);
 
     const westRoomCeil = new THREE.Mesh(new THREE.PlaneGeometry(7.0, 6.8), mats.ceilingMat);
@@ -577,6 +771,7 @@ export class SchoolEngine {
     const eastWingFloor = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 17.6), mats.wingFloorMat);
     eastWingFloor.rotation.x = -Math.PI / 2;
     eastWingFloor.position.set(26.0, 0.002, -6.6);
+    eastWingFloor.receiveShadow = !this.isSoftwareGl;
     group.add(eastWingFloor);
 
     const eastWingCeil = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 17.6), mats.ceilingMat);
@@ -594,16 +789,22 @@ export class SchoolEngine {
       -15.1,
       4.4,
       wallH,
-      floor === 1 ? 'Aparcabicicletas' : 'Baños 2° Piso',
+      floor === 1 ? 'Aparcabicicletas' : 'Baños',
       mats.cedarTimberMat,
+      mats.slidingDoorMat,
       mats.maxAniso
     );
 
-    if (floor === 2) {
+    if (floor === 1) {
+      // Cerramientos laterales en z = -15.1 a ambos lados de la salida hacia Aparcabicicletas
+      this.addBoxWall(group, 22.8, wallH / 2, -15.1, 2.05, wallH, 0.25, mats.wallShortMat);
+      this.addBoxWall(group, 29.35, wallH / 2, -15.1, 2.3, wallH, 0.25, mats.wallShortMat);
+    } else {
       // 2F Bathrooms Enclosed Tiled Room (x: 22.0..30.0, z: -24.0..-15.0)
       const bathFloor = new THREE.Mesh(new THREE.PlaneGeometry(8.0, 9.0), mats.bathFloorMat);
       bathFloor.rotation.x = -Math.PI / 2;
       bathFloor.position.set(26.0, 0.004, -19.5);
+      bathFloor.receiveShadow = !this.isSoftwareGl;
       group.add(bathFloor);
 
       const bathCeil = new THREE.Mesh(new THREE.PlaneGeometry(8.0, 9.0), mats.ceilingMat);
@@ -619,6 +820,70 @@ export class SchoolEngine {
     }
   }
 
+  private buildNorthCorridorWallWithWindows(
+    group: THREE.Group,
+    startX: number,
+    endX: number,
+    z: number,
+    wallH: number,
+    windowCentersX: number[],
+    mat: THREE.Material
+  ) {
+    const winHalfW = 1.85;
+    const sillH = 1.18;
+    const winTopY = 2.62;
+    const lintelH = wallH - winTopY;
+
+    const sortedCenters = [...windowCentersX].sort((a, b) => a - b);
+    let cursorX = startX;
+
+    for (const cx of sortedCenters) {
+      const bayMin = Math.max(startX, cx - winHalfW);
+      const bayMax = Math.min(endX, cx + winHalfW);
+
+      if (bayMin > cursorX + 0.02) {
+        const pierW = bayMin - cursorX;
+        const pier = this.addBoxWall(group, cursorX + pierW / 2, wallH / 2, z, pierW, wallH, 0.25, mat);
+        pier.castShadow = !this.isSoftwareGl;
+      }
+
+      if (bayMax > bayMin + 0.05) {
+        const bayW = bayMax - bayMin;
+        const sill = this.addBoxWall(group, bayMin + bayW / 2, sillH / 2, z, bayW, sillH, 0.25, mat);
+        sill.castShadow = !this.isSoftwareGl;
+
+        const lintel = this.addBoxWall(
+          group,
+          bayMin + bayW / 2,
+          winTopY + lintelH / 2,
+          z,
+          bayW,
+          lintelH,
+          0.25,
+          mat
+        );
+        lintel.castShadow = !this.isSoftwareGl;
+      }
+
+      cursorX = Math.max(cursorX, bayMax);
+    }
+
+    if (endX > cursorX + 0.02) {
+      const endPierW = endX - cursorX;
+      const endPier = this.addBoxWall(
+        group,
+        cursorX + endPierW / 2,
+        wallH / 2,
+        z,
+        endPierW,
+        wallH,
+        0.25,
+        mat
+      );
+      endPier.castShadow = !this.isSoftwareGl;
+    }
+  }
+
   private addGlassEntranceWall(
     group: THREE.Group,
     x: number,
@@ -631,13 +896,15 @@ export class SchoolEngine {
     entrance.position.set(x, 0, z);
 
     const glassMat = new THREE.MeshStandardMaterial({
-      color: '#fde68a',
-      emissive: '#ea580c',
-      emissiveIntensity: 0.24,
-      roughness: 0.2,
-      metalness: 0.1,
+      color: '#9fb8b4',
+      emissive: '#38bdf8',
+      emissiveIntensity: 0.12,
+      roughness: 0.18,
+      metalness: 0.08,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.48,
+      depthWrite: false,
+      envMapIntensity: 0.4,
     });
 
     const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(width, height), glassMat);
@@ -664,23 +931,108 @@ export class SchoolEngine {
     const winGroup = new THREE.Group();
     winGroup.position.set(x, 1.9, z);
 
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(3.8, 1.45, 0.08), frameMat);
-    winGroup.add(frame);
+    const winW = 3.74;
+    const winH = 1.44;
+    const barDepth = 0.14;
 
+    // Marco perimetral abierto (sin placa sólida trasera) para dejar pasar los haces de luz direccional
+    const topBar = new THREE.Mesh(new THREE.BoxGeometry(winW, 0.08, barDepth), frameMat);
+    topBar.position.y = winH / 2 - 0.04;
+    topBar.castShadow = !this.isSoftwareGl;
+    winGroup.add(topBar);
+
+    const bottomBar = new THREE.Mesh(new THREE.BoxGeometry(winW, 0.08, barDepth), frameMat);
+    bottomBar.position.y = -winH / 2 + 0.04;
+    bottomBar.castShadow = !this.isSoftwareGl;
+    winGroup.add(bottomBar);
+
+    [-winW / 2 + 0.04, winW / 2 - 0.04].forEach((bx) => {
+      const sideBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, winH, barDepth), frameMat);
+      sideBar.position.x = bx;
+      sideBar.castShadow = !this.isSoftwareGl;
+      winGroup.add(sideBar);
+    });
+
+    // Montantes internos que dibujan la retícula de ventana sobre los tablones del suelo
+    [-0.62, 0.62].forEach((mx) => {
+      const mullion = new THREE.Mesh(new THREE.BoxGeometry(0.06, winH - 0.08, barDepth * 0.85), frameMat);
+      mullion.position.x = mx;
+      mullion.castShadow = !this.isSoftwareGl;
+      winGroup.add(mullion);
+    });
+
+    const transom = new THREE.Mesh(new THREE.BoxGeometry(winW - 0.1, 0.055, barDepth * 0.8), frameMat);
+    transom.position.y = 0.22;
+    transom.castShadow = !this.isSoftwareGl;
+    winGroup.add(transom);
+
+    // Vidrio translúcido envejecido con leve tinte cielo/crepúsculo frío
     const skyMat = new THREE.MeshStandardMaterial({
-      color: '#334155',
-      emissive: '#fb923c',
-      emissiveIntensity: 0.18,
-      roughness: 0.15,
+      color: '#9fb8b4',
+      emissive: '#475569',
+      emissiveIntensity: 0.22,
+      roughness: 0.18,
+      metalness: 0.06,
+      transparent: true,
+      opacity: 0.42,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      envMapIntensity: 0.4,
     });
 
     for (let i = -1; i <= 1; i++) {
-      const pane = new THREE.Mesh(new THREE.PlaneGeometry(1.12, 1.25), skyMat);
-      pane.position.set(i * 1.2, 0, 0.05);
+      const pane = new THREE.Mesh(new THREE.PlaneGeometry(1.14, 1.3), skyMat);
+      pane.position.set(i * 1.21, 0, 0.02);
+      pane.castShadow = false;
       winGroup.add(pane);
     }
 
     group.add(winGroup);
+  }
+
+  /**
+   * Construye un cartel colgante de madera con grosor real (`BoxGeometry`) y dos caras independientes
+   * (`FrontSide`) espalda con espalda, asegurando lectura correcta de izquierda a derecha en ambos sentidos.
+   */
+  private createWoodenSignBoard(
+    title: string,
+    width: number,
+    height: number,
+    depth: number,
+    maxAniso: number,
+    frameMat: THREE.Material
+  ): THREE.Group {
+    const board = new THREE.Group();
+
+    const plank = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), frameMat);
+    plank.castShadow = !this.isSoftwareGl;
+    board.add(plank);
+
+    const signTex = createWoodenSignTexture(title, maxAniso);
+    this.sharedTextures.push(signTex);
+
+    const faceMat = new THREE.MeshStandardMaterial({
+      map: signTex,
+      roughness: 0.75,
+      metalness: 0.03,
+      envMapIntensity: 0.32,
+      side: THREE.FrontSide,
+    });
+
+    const faceW = Math.max(0.1, width - 0.01);
+    const faceH = Math.max(0.06, height - 0.01);
+    const halfD = depth * 0.5 + 0.0015;
+
+    const frontFace = new THREE.Mesh(new THREE.PlaneGeometry(faceW, faceH), faceMat);
+    frontFace.position.z = halfD;
+    board.add(frontFace);
+
+    const backFace = new THREE.Mesh(new THREE.PlaneGeometry(faceW, faceH), faceMat);
+    backFace.position.z = -halfD;
+    backFace.rotation.y = Math.PI;
+    board.add(backFace);
+
+    return board;
   }
 
   private addClassroomDoor(
@@ -689,21 +1041,14 @@ export class SchoolEngine {
     z: number,
     rotY: number,
     label: string,
-    isOpen: boolean,
     maxAniso: number,
     frameMat: THREE.Material,
+    doorMat: THREE.Material,
     isDestinationDoor = false
   ) {
     const doorGroup = new THREE.Group();
     doorGroup.position.set(x, 0, z);
     doorGroup.rotation.y = rotY;
-
-    const tex = createSlidingDoorTexture(label, isOpen, maxAniso);
-    const doorMat = new THREE.MeshStandardMaterial({
-      map: tex,
-      roughness: 0.58,
-      metalness: 0.05,
-    });
 
     if (isDestinationDoor) {
       // Warm sunlit classroom doorway backdrop revealed when the sliding panel unlocks
@@ -731,35 +1076,25 @@ export class SchoolEngine {
     panel.position.set(0, 1.225, isDestinationDoor ? 0.055 : 0.02);
     doorGroup.add(panel);
 
-    // Protruding Japanese hallway room plaque perpendicular to wall
-    const signArm = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.55), frameMat);
-    signArm.position.set(1.05, 2.55, 0.25);
+    // Brazo y soporte colgante perpendicular al pasillo con tablón de madera de doble cara legible
+    const signArm = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.62), frameMat);
+    signArm.position.set(1.05, 2.55, 0.31);
     doorGroup.add(signArm);
 
-    const plaqueTex = createMarkerPlaqueTexture(
-      label,
-      isOpen ? 'Abierta' : 'Cerrada',
-      isOpen ? '#22c55e' : '#ef4444'
-    );
-    const plaqueMat = new THREE.MeshBasicMaterial({
-      map: plaqueTex,
-      side: THREE.DoubleSide,
-      transparent: true,
+    [0.2, 0.5].forEach((hz) => {
+      const hanger = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.09, 0.024), frameMat);
+      hanger.position.set(1.05, 2.49, hz);
+      doorGroup.add(hanger);
     });
-    const plaque = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.22), plaqueMat);
-    plaque.position.set(1.05, 2.38, 0.34);
-    plaque.rotation.y = Math.PI / 2;
-    doorGroup.add(plaque);
+
+    const signBoard = this.createWoodenSignBoard(label, 0.68, 0.23, 0.036, maxAniso, frameMat);
+    signBoard.position.set(1.05, 2.35, 0.35);
+    signBoard.rotation.y = Math.PI / 2;
+    doorGroup.add(signBoard);
 
     if (isDestinationDoor) {
       this.destDoorGroup = doorGroup;
       this.destDoorPanel = panel;
-      this.destDoorMat = doorMat;
-      this.destDoorPlaqueMat = plaqueMat;
-      this.destDoorLockedTex = tex;
-      this.destDoorUnlockedTex = createSlidingDoorTexture(label, true, maxAniso);
-      this.destPlaqueLockedTex = plaqueTex;
-      this.destPlaqueUnlockedTex = createMarkerPlaqueTexture(label, 'Abierta', '#22c55e');
 
       // Subtle emerald threshold ring on the hallway floor when unlocked
       const thresholdRing = new THREE.Mesh(
@@ -777,6 +1112,7 @@ export class SchoolEngine {
       thresholdRing.rotation.x = -Math.PI / 2;
       thresholdRing.position.set(0, 0.022, 0.42);
       thresholdRing.visible = false;
+      thresholdRing.userData.isInteractiveMarker = true;
       doorGroup.add(thresholdRing);
       this.destDoorThresholdRing = thresholdRing;
 
@@ -801,6 +1137,7 @@ export class SchoolEngine {
     wallH: number,
     title: string,
     frameMat: THREE.Material,
+    doorMat: THREE.Material,
     maxAniso: number
   ) {
     const arch = new THREE.Group();
@@ -811,19 +1148,21 @@ export class SchoolEngine {
     lintel.position.set(0, wallH - 0.425, 0);
     arch.add(lintel);
 
-    // Slid-open wooden hikido door tucked to one side
-    const tex = createSlidingDoorTexture(title.slice(0, 12), true, maxAniso);
-    const doorMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55 });
+    // Slid-open wooden hikido door tucked to one side (sin textos sobre la hoja)
     const slidDoor = new THREE.Mesh(new THREE.BoxGeometry(1.3, 2.6, 0.08), doorMat);
     slidDoor.position.set(-corridorWidth / 2 + 0.72, 1.3, 0.14);
     arch.add(slidDoor);
 
-    // Overhead room banner
-    const bannerTex = createMarkerPlaqueTexture(title, 'Acceso Abierto', '#22c55e');
-    const bannerMat = new THREE.MeshBasicMaterial({ map: bannerTex, transparent: true, side: THREE.DoubleSide });
-    const banner = new THREE.Mesh(new THREE.PlaneGeometry(1.75, 0.52), bannerMat);
-    banner.position.set(0, 2.86, 0.18);
-    arch.add(banner);
+    // Cartel colgante de madera suspendido bajo el dintel (legible de frente y desde el interior sin espejo)
+    [-0.24, 0.68].forEach((hx) => {
+      const hanger = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.14, 0.036), frameMat);
+      hanger.position.set(hx, 2.64, 0);
+      arch.add(hanger);
+    });
+
+    const signBoard = this.createWoodenSignBoard(title, 1.54, 0.36, 0.04, maxAniso, frameMat);
+    signBoard.position.set(0.22, 2.45, 0);
+    arch.add(signBoard);
 
     group.add(arch);
   }
@@ -834,58 +1173,537 @@ export class SchoolEngine {
     floor: FloorNumber,
     mats: {
       roomFloorMat: THREE.Material;
+      stairTreadMat: THREE.Material;
       wallShortMat: THREE.Material;
       ceilingMat: THREE.Material;
       cedarTimberMat: THREE.Material;
+      slidingDoorMat: THREE.Material;
     }
   ) {
     const wallH = 3.5;
     const pocket = new THREE.Group();
     pocket.position.set(centerX, 0, 0);
 
-    // Landing floor (z: 2.0..4.5)
-    const landing = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 2.8), mats.roomFloorMat);
-    landing.rotation.x = -Math.PI / 2;
-    landing.position.set(0, 0.004, 3.4);
-    pocket.add(landing);
-
-    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 5.4), mats.ceilingMat);
-    ceil.rotation.x = Math.PI / 2;
-    ceil.position.set(0, wallH + 1.2, 4.7);
-    pocket.add(ceil);
-
-    // Pocket side & back walls
-    this.addBoxWall(pocket, -1.7, (wallH + 1.2) / 2, 4.7, 0.24, wallH + 1.2, 4.8, mats.wallShortMat);
-    this.addBoxWall(pocket, 1.7, (wallH + 1.2) / 2, 4.7, 0.24, wallH + 1.2, 4.8, mats.wallShortMat);
-    this.addBoxWall(pocket, 0, (wallH + 1.2) / 2, 7.0, 3.6, wallH + 1.2, 0.24, mats.wallShortMat);
-
-    // Composite 3D Steps behind the staircase marker (z: 3.9..6.7)
-    const stepMat = new THREE.MeshStandardMaterial({ color: '#6b492e', roughness: 0.55 });
-    const riserMat = new THREE.MeshStandardMaterial({ color: '#dfd8ca', roughness: 0.85 });
-    const stepCount = 9;
-    for (let s = 0; s < stepCount; s++) {
-      const sy = floor === 1 ? (s + 1) * 0.24 : Math.max(0.06, 1.9 - s * 0.2);
-      const sz = 4.05 + s * 0.28;
-      const step = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.07, 0.3), stepMat);
-      step.position.set(0, sy, sz);
-      pocket.add(step);
-
-      const riser = new THREE.Mesh(new THREE.BoxGeometry(2.9, sy, 0.04), riserMat);
-      riser.position.set(0, sy / 2, sz - 0.13);
-      pocket.add(riser);
-    }
-
-    // Wooden handrail banisters
-    [-1.35, 1.35].forEach((rx) => {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.05, 10), mats.cedarTimberMat);
-      post.position.set(rx, 0.52, 3.95);
-      pocket.add(post);
-
-      const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 3.1, 10), mats.cedarTimberMat);
-      rail.position.set(rx, floor === 1 ? 1.65 : 1.15, 5.2);
-      rail.rotation.x = floor === 1 ? -0.62 : 0.45;
-      pocket.add(rail);
+    const riserMat = new THREE.MeshStandardMaterial({
+      color: '#7c857d',
+      roughness: 0.9,
+      metalness: 0.02,
+      envMapIntensity: 0.25,
     });
+
+    if (floor === 1) {
+      // 1F -> Escalera escolar realista de 18 peldaños (9 + descanso intermedio + 9)
+      // conectando hasta el nivel del 2° piso (y = 3.78m) con desembarco abierto lateral sin choque contra pared.
+      const slabThickness = 0.28;
+      const upperFloorY = wallH + slabThickness; // 3.78m
+      const upperCeilY = upperFloorY + wallH; // 7.28m
+      const openSide = centerX < 0 ? 1 : -1; // Se abre hacia el interior del edificio (+X en Oeste, -X en Este)
+
+      // Descanso inferior de arranque en planta baja (z = 2.0 .. 3.95, alineado con el collider maxZ = 3.9 y marcador en z = 2.9)
+      const entryLanding = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.95), mats.roomFloorMat);
+      entryLanding.rotation.x = -Math.PI / 2;
+      entryLanding.position.set(0, 0.004, 2.975);
+      entryLanding.receiveShadow = !this.isSoftwareGl;
+      pocket.add(entryLanding);
+
+      // Cielo raso alto del cubo de escaleras (techo del 2° piso sobre toda la caja)
+      const stairwellCeil = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 10.85), mats.ceilingMat);
+      stairwellCeil.rotation.x = Math.PI / 2;
+      stairwellCeil.position.set(0, upperCeilY, 7.675);
+      pocket.add(stairwellCeil);
+
+      // Dintel de losa en el umbral del corredor 1F (z = 2.4) y muro frontal superior sobre el hueco (y = 3.78 .. 7.28)
+      const entranceHeader = new THREE.Mesh(new THREE.BoxGeometry(3.4, slabThickness, 0.26), mats.cedarTimberMat);
+      entranceHeader.position.set(0, wallH + slabThickness * 0.5, 2.4);
+      pocket.add(entranceHeader);
+      this.addBoxWall(pocket, 0, upperFloorY + wallH * 0.5, 2.4, 3.64, wallH, 0.24, mats.wallShortMat);
+
+      // Muros laterales en 1F (y = 0 .. 3.5) + viga de entrepiso en madera oscura (y = 3.5 .. 3.78)
+      this.addBoxWall(pocket, -1.7, wallH * 0.5, 7.675, 0.24, wallH, 10.75, mats.wallShortMat);
+      this.addBoxWall(pocket, 1.7, wallH * 0.5, 7.675, 0.24, wallH, 10.75, mats.wallShortMat);
+      [-1.7, 1.7].forEach((wx) => {
+        const slabBand = new THREE.Mesh(new THREE.BoxGeometry(0.26, slabThickness, 10.75), mats.cedarTimberMat);
+        slabBand.position.set(wx, wallH + slabThickness * 0.5, 7.675);
+        pocket.add(slabBand);
+      });
+
+      // Muro lateral exterior en nivel 2F (cerrado completo)
+      this.addBoxWall(
+        pocket,
+        -openSide * 1.7,
+        upperFloorY + wallH * 0.5,
+        7.675,
+        0.24,
+        wallH,
+        10.75,
+        mats.wallShortMat
+      );
+      // Muro lateral interior en nivel 2F: llega hasta z = 10.19 para dejar abierta la galería/desembarco superior
+      this.addBoxWall(
+        pocket,
+        openSide * 1.7,
+        upperFloorY + wallH * 0.5,
+        6.245,
+        0.24,
+        wallH,
+        7.89,
+        mats.wallShortMat
+      );
+
+      // Parámetros del tramo doble: 9 + descanso (1.20m) + 9 = 18 escalones totales -> y = 3.78m
+      const stepsPerFlight = 9;
+      const stepRise = 0.21;
+      const stepRun = 0.28;
+      const zStart = 3.95;
+      const flightRun = stepsPerFlight * stepRun; // 2.52m
+      const flightRise = stepsPerFlight * stepRise; // 1.89m
+      const midLandingDepth = 1.2;
+      const zMidStart = zStart + flightRun; // 6.47m
+      const zUpperStart = zMidStart + midLandingDepth; // 7.67m
+      const zTopEnd = zUpperStart + flightRun; // 10.19m
+      const diagLen = Math.hypot(flightRun, flightRise);
+      const slopeAngle = Math.atan2(flightRise, flightRun);
+      const railX = 1.42;
+
+      const buildAscendingFlight = (baseZ: number, baseY: number) => {
+        for (let s = 0; s < stepsPerFlight; s++) {
+          const yTop = baseY + (s + 1) * stepRise;
+          const zCenter = baseZ + (s + 0.5) * stepRun;
+
+          const tread = new THREE.Mesh(
+            new THREE.BoxGeometry(2.96, 0.055, stepRun + 0.04),
+            mats.stairTreadMat
+          );
+          tread.position.set(0, yTop - 0.0275, zCenter);
+          tread.receiveShadow = !this.isSoftwareGl;
+          tread.castShadow = !this.isSoftwareGl;
+          pocket.add(tread);
+
+          const nosing = new THREE.Mesh(
+            new THREE.BoxGeometry(3.0, 0.026, 0.036),
+            mats.cedarTimberMat
+          );
+          nosing.position.set(0, yTop - 0.013, zCenter - stepRun * 0.5);
+          pocket.add(nosing);
+
+          const riser = new THREE.Mesh(new THREE.BoxGeometry(2.92, stepRise, 0.04), riserMat);
+          riser.position.set(0, yTop - stepRise * 0.5, zCenter - stepRun * 0.5);
+          riser.receiveShadow = !this.isSoftwareGl;
+          pocket.add(riser);
+        }
+
+        // Losa inferior inclinada bajo los peldaños para solidez arquitectónica
+        const soffit = new THREE.Mesh(
+          new THREE.BoxGeometry(2.94, 0.14, diagLen + 0.08),
+          mats.cedarTimberMat
+        );
+        soffit.position.set(0, baseY + flightRise * 0.5 - 0.14, baseZ + flightRun * 0.5);
+        soffit.rotation.x = -slopeAngle;
+        pocket.add(soffit);
+
+        // Zancas, postes maestros, pasamanos y balaustres en madera envejecida oscura
+        [-railX, railX].forEach((rx) => {
+          const stringer = new THREE.Mesh(
+            new THREE.BoxGeometry(0.11, 0.26, diagLen + 0.14),
+            mats.cedarTimberMat
+          );
+          stringer.position.set(rx * 1.03, baseY + flightRise * 0.5 - 0.07, baseZ + flightRun * 0.5);
+          stringer.rotation.x = -slopeAngle;
+          stringer.castShadow = !this.isSoftwareGl;
+          pocket.add(stringer);
+
+          const postBottom = new THREE.Mesh(new THREE.BoxGeometry(0.11, 1.02, 0.11), mats.cedarTimberMat);
+          postBottom.position.set(rx, baseY + 0.51, baseZ - 0.04);
+          pocket.add(postBottom);
+
+          const postTop = new THREE.Mesh(new THREE.BoxGeometry(0.11, 1.02, 0.11), mats.cedarTimberMat);
+          postTop.position.set(rx, baseY + flightRise + 0.51, baseZ + flightRun + 0.04);
+          pocket.add(postTop);
+
+          const rail = new THREE.Mesh(
+            new THREE.BoxGeometry(0.08, 0.055, diagLen + 0.16),
+            mats.cedarTimberMat
+          );
+          rail.position.set(rx, baseY + 0.96 + flightRise * 0.5, baseZ + flightRun * 0.5);
+          rail.rotation.x = -slopeAngle;
+          pocket.add(rail);
+
+          for (let b = 1; b <= 4; b++) {
+            const t = b / 5;
+            const bal = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.94, 0.042), mats.cedarTimberMat);
+            bal.position.set(rx, baseY + t * flightRise + 0.47, baseZ + t * flightRun);
+            pocket.add(bal);
+          }
+        });
+      };
+
+      // Primer tramo (peldaños 1..9)
+      buildAscendingFlight(zStart, 0);
+
+      // Descanso intermedio (y = 1.89m, z = 6.47 .. 7.67) con base estructural cerrada
+      const midLandingCenterZ = zMidStart + midLandingDepth * 0.5;
+      const midLandingDeck = new THREE.Mesh(
+        new THREE.BoxGeometry(3.2, 0.18, midLandingDepth + 0.06),
+        mats.stairTreadMat
+      );
+      midLandingDeck.position.set(0, flightRise - 0.09, midLandingCenterZ);
+      midLandingDeck.receiveShadow = !this.isSoftwareGl;
+      pocket.add(midLandingDeck);
+
+      const midFrontNosing = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.03, 0.05), mats.cedarTimberMat);
+      midFrontNosing.position.set(0, flightRise - 0.015, zMidStart);
+      pocket.add(midFrontNosing);
+
+      const underMidWall = new THREE.Mesh(
+        new THREE.BoxGeometry(3.18, flightRise, 0.22),
+        mats.cedarTimberMat
+      );
+      underMidWall.position.set(0, flightRise * 0.5, zMidStart + 0.09);
+      pocket.add(underMidWall);
+
+      // Barandas horizontales del descanso intermedio
+      [-railX, railX].forEach((rx) => {
+        const midRail = new THREE.Mesh(
+          new THREE.BoxGeometry(0.08, 0.055, midLandingDepth - 0.04),
+          mats.cedarTimberMat
+        );
+        midRail.position.set(rx, flightRise + 0.96, midLandingCenterZ);
+        pocket.add(midRail);
+
+        [0.33, 0.67].forEach((t) => {
+          const bal = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.94, 0.042), mats.cedarTimberMat);
+          bal.position.set(rx, flightRise + 0.47, zMidStart + midLandingDepth * t);
+          pocket.add(bal);
+        });
+      });
+
+      // Segundo tramo (peldaños 10..18 -> y = 1.89m .. 3.78m)
+      buildAscendingFlight(zUpperStart, flightRise);
+
+      // Base cerrada bajo el desembarco superior (z = 10.29, y = 0 .. 3.50) ajustada bajo la losa 2F
+      const underTopWall = new THREE.Mesh(
+        new THREE.BoxGeometry(3.18, wallH, 0.24),
+        mats.cedarTimberMat
+      );
+      underTopWall.position.set(0, wallH * 0.5, zTopEnd + 0.1);
+      pocket.add(underTopWall);
+
+      // Zócalos laterales de madera oscura en descanso intermedio y desembarco superior
+      [-1.56, 1.56].forEach((bx) => {
+        const midBaseboard = new THREE.Mesh(
+          new THREE.BoxGeometry(0.05, 0.14, midLandingDepth),
+          mats.cedarTimberMat
+        );
+        midBaseboard.position.set(bx, flightRise + 0.07, midLandingCenterZ);
+        pocket.add(midBaseboard);
+      });
+
+      // Desembarco superior en nivel 2° Piso (y = 3.78m, z = 10.19 .. 12.95)
+      const topLandingDepth = 2.76;
+      const topLandingCenterZ = zTopEnd + topLandingDepth * 0.5; // 11.57m
+      const topLandingSlab = new THREE.Mesh(
+        new THREE.BoxGeometry(3.4, slabThickness, topLandingDepth + 0.08),
+        mats.cedarTimberMat
+      );
+      topLandingSlab.position.set(0, upperFloorY - slabThickness * 0.5, topLandingCenterZ);
+      pocket.add(topLandingSlab);
+
+      const topLandingFloor = new THREE.Mesh(
+        new THREE.PlaneGeometry(3.4, topLandingDepth + 0.04),
+        mats.roomFloorMat
+      );
+      topLandingFloor.rotation.x = -Math.PI / 2;
+      topLandingFloor.position.set(0, upperFloorY + 0.004, topLandingCenterZ);
+      topLandingFloor.receiveShadow = !this.isSoftwareGl;
+      pocket.add(topLandingFloor);
+
+      // Remate de madera en el borde superior del último peldaño
+      const topNosing = new THREE.Mesh(new THREE.BoxGeometry(3.04, 0.032, 0.055), mats.cedarTimberMat);
+      topNosing.position.set(0, upperFloorY - 0.012, zTopEnd);
+      pocket.add(topNosing);
+
+      // Pasamanos corto de remate en el lado cerrado del desembarco superior
+      const outerSideX = -openSide * railX;
+      const topReturnRail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.055, 1.35), mats.cedarTimberMat);
+      topReturnRail.position.set(outerSideX, upperFloorY + 0.96, zTopEnd + 0.68);
+      pocket.add(topReturnRail);
+
+      const topReturnPost = new THREE.Mesh(new THREE.BoxGeometry(0.11, 1.02, 0.11), mats.cedarTimberMat);
+      topReturnPost.position.set(outerSideX, upperFloorY + 0.51, zTopEnd + 1.32);
+      pocket.add(topReturnPost);
+
+      // Abertura arquitectónica hacia el pasillo superior del 2° Piso (x = openSide * 1.7 .. openSide * 6.5)
+      const archPillar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.26, wallH, 0.26),
+        mats.cedarTimberMat
+      );
+      archPillar.position.set(openSide * 1.7, upperFloorY + wallH * 0.5, zTopEnd);
+      pocket.add(archPillar);
+
+      const archLintel = new THREE.Mesh(
+        new THREE.BoxGeometry(0.26, 0.72, topLandingDepth + 0.16),
+        mats.cedarTimberMat
+      );
+      archLintel.position.set(openSide * 1.7, upperCeilY - 0.36, topLandingCenterZ);
+      pocket.add(archLintel);
+
+      // Galería / corredor superior visible al terminar los 18 escalones (elimina el muro de choque)
+      const galleryLen = 4.8;
+      const galleryCenterX = openSide * (1.7 + galleryLen * 0.5);
+      const gallerySlab = new THREE.Mesh(
+        new THREE.BoxGeometry(galleryLen, slabThickness, topLandingDepth + 0.12),
+        mats.cedarTimberMat
+      );
+      gallerySlab.position.set(galleryCenterX, upperFloorY - slabThickness * 0.5, topLandingCenterZ);
+      pocket.add(gallerySlab);
+
+      const galleryFloor = new THREE.Mesh(
+        new THREE.PlaneGeometry(galleryLen, topLandingDepth),
+        mats.roomFloorMat
+      );
+      galleryFloor.rotation.x = -Math.PI / 2;
+      galleryFloor.position.set(galleryCenterX, upperFloorY + 0.004, topLandingCenterZ);
+      galleryFloor.receiveShadow = !this.isSoftwareGl;
+      pocket.add(galleryFloor);
+
+      const galleryCeil = new THREE.Mesh(
+        new THREE.PlaneGeometry(galleryLen, topLandingDepth),
+        mats.ceilingMat
+      );
+      galleryCeil.rotation.x = Math.PI / 2;
+      galleryCeil.position.set(galleryCenterX, upperCeilY, topLandingCenterZ);
+      pocket.add(galleryCeil);
+
+      // Muros frontal, trasero y fondo de la galería 2F
+      this.addBoxWall(
+        pocket,
+        galleryCenterX,
+        upperFloorY + wallH * 0.5,
+        zTopEnd - 0.08,
+        galleryLen,
+        wallH,
+        0.24,
+        mats.wallShortMat
+      );
+      this.addBoxWall(
+        pocket,
+        galleryCenterX,
+        upperFloorY + wallH * 0.5,
+        13.05,
+        galleryLen,
+        wallH,
+        0.24,
+        mats.wallShortMat
+      );
+      this.addBoxWall(
+        pocket,
+        openSide * (1.7 + galleryLen),
+        upperFloorY + wallH * 0.5,
+        topLandingCenterZ,
+        0.24,
+        wallH,
+        topLandingDepth + 0.24,
+        mats.wallShortMat
+      );
+
+      // Puerta corrediza escolar de madera al fondo de la galería superior 2F (refuerza la continuidad del 2° piso)
+      const upperEndDoor = new THREE.Mesh(
+        new THREE.BoxGeometry(0.06, 2.45, 1.65),
+        mats.slidingDoorMat
+      );
+      upperEndDoor.position.set(
+        openSide * (1.7 + galleryLen - 0.14),
+        upperFloorY + 1.225,
+        topLandingCenterZ
+      );
+      pocket.add(upperEndDoor);
+
+      const upperBaseboard = new THREE.Mesh(
+        new THREE.BoxGeometry(0.05, 0.14, topLandingDepth),
+        mats.cedarTimberMat
+      );
+      upperBaseboard.position.set(-openSide * 1.56, upperFloorY + 0.07, topLandingCenterZ);
+      pocket.add(upperBaseboard);
+
+      // Plafón fluorescente suave en el corredor superior 2F para dar profundidad al mirar hacia arriba
+      const upperLamp = new THREE.Mesh(
+        new THREE.BoxGeometry(1.25, 0.07, 0.3),
+        new THREE.MeshStandardMaterial({
+          color: '#e0f2fe',
+          emissive: '#bae6fd',
+          emissiveIntensity: 1.25,
+          roughness: 0.2,
+        })
+      );
+      upperLamp.position.set(openSide * 3.1, upperCeilY - 0.04, topLandingCenterZ);
+      pocket.add(upperLamp);
+
+      // Muro posterior del hueco de escalera (z = 13.05) con ventanal alto escolar japonés
+      const backZ = 13.05;
+      this.addBoxWall(pocket, 0, 2.275, backZ, 3.64, 4.55, 0.24, mats.wallShortMat);
+      this.addBoxWall(pocket, 0, 6.965, backZ, 3.64, 0.63, 0.24, mats.wallShortMat);
+      this.addBoxWall(pocket, -1.35, 5.6, backZ, 0.94, 2.1, 0.24, mats.wallShortMat);
+      this.addBoxWall(pocket, 1.35, 5.6, backZ, 0.94, 2.1, 0.24, mats.wallShortMat);
+
+      const stairWinW = 1.76;
+      const stairWinH = 2.1;
+      const stairWinY = 5.6;
+      const winGlassMat = new THREE.MeshStandardMaterial({
+        color: '#8faab0',
+        emissive: '#3e5c69',
+        emissiveIntensity: 0.34,
+        roughness: 0.2,
+        metalness: 0.05,
+        transparent: true,
+        opacity: 0.72,
+      });
+      const winPane = new THREE.Mesh(new THREE.PlaneGeometry(stairWinW, stairWinH), winGlassMat);
+      winPane.position.set(0, stairWinY, backZ - 0.04);
+      winPane.rotation.y = Math.PI;
+      pocket.add(winPane);
+
+      // Montantes y travesaños de madera oscura en el ventanal de la escalera
+      [-0.86, 0, 0.86].forEach((mx) => {
+        const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.06, stairWinH, 0.12), mats.cedarTimberMat);
+        vBar.position.set(mx, stairWinY, backZ - 0.03);
+        pocket.add(vBar);
+      });
+      [-1.02, -0.34, 0.34, 1.02].forEach((my) => {
+        const hBar = new THREE.Mesh(new THREE.BoxGeometry(stairWinW, 0.055, 0.12), mats.cedarTimberMat);
+        hBar.position.set(0, stairWinY + my, backZ - 0.03);
+        pocket.add(hBar);
+      });
+
+      // Luz atmosférica fría desde el ventanal y desembarco superior iluminando todo el recorrido
+      const stairWindowLight = new THREE.PointLight('#8ab0c4', 1.15, 16);
+      stairWindowLight.position.set(0, 5.6, 11.4);
+      pocket.add(stairWindowLight);
+
+      const upperHallLight = new THREE.PointLight('#b8d0de', 0.95, 11);
+      upperHallLight.position.set(openSide * 2.8, upperFloorY + 2.4, topLandingCenterZ);
+      pocket.add(upperHallLight);
+    } else {
+      // 2F -> Descanso superior alineado exactamente hasta el inicio del tiro descendente (z = 3.95)
+      const landing = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.95), mats.roomFloorMat);
+      landing.rotation.x = -Math.PI / 2;
+      landing.position.set(0, 0.004, 2.975);
+      landing.receiveShadow = !this.isSoftwareGl;
+      pocket.add(landing);
+
+      const ceil = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 5.4), mats.ceilingMat);
+      ceil.rotation.x = Math.PI / 2;
+      ceil.position.set(0, wallH + 1.2, 4.7);
+      pocket.add(ceil);
+
+      // Paredes superiores del hueco de escalera (y = 0 .. 4.7 para alinear zócalo/lambrín con el pasillo)
+      this.addBoxWall(pocket, -1.7, (wallH + 1.2) / 2, 4.7, 0.24, wallH + 1.2, 4.8, mats.wallShortMat);
+      this.addBoxWall(pocket, 1.7, (wallH + 1.2) / 2, 4.7, 0.24, wallH + 1.2, 4.8, mats.wallShortMat);
+      this.addBoxWall(pocket, 0, (wallH + 1.2) / 2, 7.0, 3.6, wallH + 1.2, 0.24, mats.wallShortMat);
+
+      const stepCount = 10;
+      const stepRise = 0.22;
+      const stepRun = 0.28;
+      const zStart = 3.95;
+      const totalRun = stepCount * stepRun; // 2.80m
+      const totalRise = stepCount * stepRise; // 2.20m
+      const diagLen = Math.hypot(totalRun, totalRise);
+      const slopeAngle = Math.atan2(totalRise, totalRun);
+
+      // Tramo descendente limpio hacia el 1° Piso (y = 0 -> -2.20m) con hueco inferior cerrado
+      const shaftLowerWallMat = new THREE.MeshStandardMaterial({
+        color: '#4e5850',
+        roughness: 0.9,
+        metalness: 0.02,
+        envMapIntensity: 0.22,
+      });
+
+      // Cierre inferior del hueco de escalera (y = -2.6 .. 0) para evitar ver el vacío bajo el piso
+      const shaftLeft = new THREE.Mesh(new THREE.BoxGeometry(0.24, 2.6, 4.8), shaftLowerWallMat);
+      shaftLeft.position.set(-1.7, -1.3, 4.7);
+      pocket.add(shaftLeft);
+
+      const shaftRight = new THREE.Mesh(new THREE.BoxGeometry(0.24, 2.6, 4.8), shaftLowerWallMat);
+      shaftRight.position.set(1.7, -1.3, 4.7);
+      pocket.add(shaftRight);
+
+      const shaftBack = new THREE.Mesh(new THREE.BoxGeometry(3.6, 2.6, 0.24), shaftLowerWallMat);
+      shaftBack.position.set(0, -1.3, 7.0);
+      pocket.add(shaftBack);
+
+      // Faldón bajo el descanso superior (z = 3.95)
+      const fasciaWall = new THREE.Mesh(new THREE.BoxGeometry(3.32, 2.6, 0.16), shaftLowerWallMat);
+      fasciaWall.position.set(0, -1.3, zStart - 0.08);
+      pocket.add(fasciaWall);
+
+      // Descanso inferior al pie de las escaleras (y = -2.20m)
+      const lowerLanding = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 3.2), mats.roomFloorMat);
+      lowerLanding.rotation.x = -Math.PI / 2;
+      lowerLanding.position.set(0, -totalRise, 5.45);
+      lowerLanding.receiveShadow = !this.isSoftwareGl;
+      pocket.add(lowerLanding);
+
+      // Luz tenue dentro del hueco para leer claramente los peldaños descendentes
+      const wellLight = new THREE.PointLight('#8fa8b8', 0.85, 10);
+      wellLight.position.set(0, 1.75, 5.4);
+      pocket.add(wellLight);
+
+      for (let s = 0; s < stepCount; s++) {
+        const yTop = -(s + 1) * stepRise;
+        const zCenter = zStart + (s + 0.5) * stepRun;
+
+        const tread = new THREE.Mesh(
+          new THREE.BoxGeometry(2.88, 0.055, stepRun + 0.04),
+          mats.stairTreadMat
+        );
+        tread.position.set(0, yTop - 0.0275, zCenter);
+        tread.receiveShadow = !this.isSoftwareGl;
+        tread.castShadow = !this.isSoftwareGl;
+        pocket.add(tread);
+
+        const nosing = new THREE.Mesh(new THREE.BoxGeometry(2.92, 0.026, 0.036), mats.cedarTimberMat);
+        nosing.position.set(0, yTop - 0.013, zCenter - stepRun * 0.5);
+        pocket.add(nosing);
+
+        const riser = new THREE.Mesh(new THREE.BoxGeometry(2.84, stepRise, 0.04), riserMat);
+        riser.position.set(0, yTop + stepRise * 0.5, zCenter - stepRun * 0.5);
+        riser.receiveShadow = !this.isSoftwareGl;
+        pocket.add(riser);
+      }
+
+      // Zancas, postes de arranque/llegada, pasamanos descendentes y balaustres en madera envejecida
+      [-1.36, 1.36].forEach((rx) => {
+        const stringer = new THREE.Mesh(
+          new THREE.BoxGeometry(0.1, 0.24, diagLen + 0.12),
+          mats.cedarTimberMat
+        );
+        stringer.position.set(rx * 1.04, -totalRise * 0.5 - 0.12, zStart + totalRun * 0.5);
+        stringer.rotation.x = slopeAngle;
+        pocket.add(stringer);
+
+        const postTop = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.02, 0.1), mats.cedarTimberMat);
+        postTop.position.set(rx, 0.51, zStart - 0.04);
+        pocket.add(postTop);
+
+        const postBottom = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.02, 0.1), mats.cedarTimberMat);
+        postBottom.position.set(rx, -totalRise + 0.51, zStart + totalRun + 0.04);
+        pocket.add(postBottom);
+
+        const rail = new THREE.Mesh(
+          new THREE.BoxGeometry(0.075, 0.055, diagLen + 0.18),
+          mats.cedarTimberMat
+        );
+        rail.position.set(rx, 0.96 - totalRise * 0.5, zStart + totalRun * 0.5);
+        rail.rotation.x = slopeAngle;
+        pocket.add(rail);
+
+        for (let b = 1; b <= 4; b++) {
+          const t = b / 5;
+          const bal = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.94, 0.042), mats.cedarTimberMat);
+          bal.position.set(rx, -t * totalRise + 0.47, zStart + t * totalRun);
+          pocket.add(bal);
+        }
+      });
+    }
 
     group.add(pocket);
   }
@@ -950,91 +1768,295 @@ export class SchoolEngine {
     broomStick.rotation.z = 0.14;
     closetGroup.add(broomStick);
 
-    const roomLight1 = new THREE.PointLight('#fed7aa', 1.8, 11);
+    const roomLight1 = new THREE.PointLight('#d9b98b', 1.15, 11);
     roomLight1.position.set(-26.0, 2.9, -21.5);
     this.floor1Group.add(roomLight1);
     this.floor1Group.add(closetGroup);
 
-    // 3. Aparcabicicletas (1F East Outdoor Courtyard: x: 22.0..30.5, z: -25.5..-15.0)
-    // Natural outdoor ground + cedar courtyard fence + polycarbonate shelter + composite bicycles + 90 reactive leaves
-    const gravelTex = createStoneTileTexture(maxAniso, '#44403c', '#292524');
-    gravelTex.repeat.set(8, 8);
-    const courtyardGround = new THREE.Mesh(
-      new THREE.PlaneGeometry(24, 22),
-      new THREE.MeshStandardMaterial({ map: gravelTex, roughness: 0.92 })
-    );
+    // 3. Aparcabicicletas y Patio Exterior (1F East Courtyard: x: 21.8..30.5, z: -25.2..-15.1)
+    // Concreto/asfalto frío húmedo PBR extendido + muros japoneses de bloques de concreto con reja metálica y setos oscuros
+    const outdoorMaps = createOutdoorConcretePbrMaps(maxAniso);
+    [outdoorMaps.map, outdoorMaps.roughnessMap, outdoorMaps.bumpMap].forEach((tex) => {
+      tex.repeat.set(7.5, 6);
+      this.sharedTextures.push(tex);
+    });
+    const outdoorConcreteMat = new THREE.MeshStandardMaterial({
+      map: outdoorMaps.map,
+      roughnessMap: outdoorMaps.roughnessMap,
+      bumpMap: outdoorMaps.bumpMap,
+      bumpScale: 0.02,
+      roughness: 0.95,
+      metalness: 0.04,
+      envMapIntensity: 0.36,
+    });
+
+    const courtyardGround = new THREE.Mesh(new THREE.PlaneGeometry(32, 24), outdoorConcreteMat);
     courtyardGround.rotation.x = -Math.PI / 2;
-    courtyardGround.position.set(26.5, 0.003, -22.5);
+    // Borde sur exacto en z = -15.1 (umbral de salida del pasillo este) para no pisar la madera interior ni viceversa
+    courtyardGround.position.set(29.0, 0.005, -27.1);
+    courtyardGround.receiveShadow = !this.isSoftwareGl;
     this.floor1Group.add(courtyardGround);
 
-    // Natural wooden courtyard perimeter fence (with gaps showing twilight pine silhouettes)
-    const fenceMat = new THREE.MeshStandardMaterial({ color: '#4a321f', roughness: 0.75 });
-    for (let fx = 21.8; fx <= 30.6; fx += 1.4) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.95, 0.14), fenceMat);
-      post.position.set(fx, 0.975, -25.0);
-      this.floor1Group.add(post);
-    }
-    const fenceSlats = new THREE.Mesh(new THREE.BoxGeometry(9.2, 1.55, 0.07), fenceMat);
-    fenceSlats.position.set(26.2, 0.95, -25.0);
-    this.floor1Group.add(fenceSlats);
+    // Patio Central exterior (x: -23.7..23.7, z: -36..-2.5) visible desde ventanales 1F y 2F (cero madera exterior)
+    const centralCourtyardGround = new THREE.Mesh(new THREE.PlaneGeometry(47.4, 33.5), outdoorConcreteMat);
+    centralCourtyardGround.rotation.x = -Math.PI / 2;
+    centralCourtyardGround.position.set(0, -0.01, -19.25);
+    centralCourtyardGround.receiveShadow = !this.isSoftwareGl;
+    this.floor1Group.add(centralCourtyardGround);
 
-    const fenceEast = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.55, 10.2), fenceMat);
-    fenceEast.position.set(30.4, 0.95, -20.0);
-    this.floor1Group.add(fenceEast);
+    const centralCourtyardGround2F = new THREE.Mesh(new THREE.PlaneGeometry(54, 34), outdoorConcreteMat);
+    centralCourtyardGround2F.rotation.x = -Math.PI / 2;
+    centralCourtyardGround2F.position.set(0, -3.5, -19.5);
+    this.floor2Group.add(centralCourtyardGround2F);
 
-    const fenceWest = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.55, 10.2), fenceMat);
-    fenceWest.position.set(21.9, 0.95, -20.0);
-    this.floor1Group.add(fenceWest);
+    // Luz exterior fría nublada coherente con la claridad azul-pizarra de los ventanales
+    const courtyardFillLight = new THREE.PointLight('#7fa4b8', 1.05, 18);
+    courtyardFillLight.position.set(26.2, 3.6, -20.8);
+    this.floor1Group.add(courtyardFillLight);
 
-    // Outdoor Pine / Maple Courtyard Trees beyond fence for organic outdoor depth
-    const trunkMat = new THREE.MeshStandardMaterial({ color: '#3b2313', roughness: 0.85 });
-    const foliageMat = new THREE.MeshStandardMaterial({ color: '#7c2d12', roughness: 0.75 });
+    // Muros perimetrales japoneses de bloques de concreto desgastado + remate + reja metálica superior
+    const blockWallTex = createConcreteBlockWallTexture(maxAniso);
+    blockWallTex.repeat.set(3, 1);
+    const blockWallTexSide = blockWallTex.clone();
+    blockWallTexSide.repeat.set(3.5, 1);
+    blockWallTexSide.needsUpdate = true;
+    const blockWallTexCentral = blockWallTex.clone();
+    blockWallTexCentral.repeat.set(14, 1);
+    blockWallTexCentral.needsUpdate = true;
+    this.sharedTextures.push(blockWallTex, blockWallTexSide, blockWallTexCentral);
+
+    const concreteWallMat = new THREE.MeshStandardMaterial({
+      map: blockWallTex,
+      roughness: 0.9,
+      metalness: 0.03,
+      envMapIntensity: 0.28,
+    });
+    const concreteWallSideMat = new THREE.MeshStandardMaterial({
+      map: blockWallTexSide,
+      roughness: 0.9,
+      metalness: 0.03,
+      envMapIntensity: 0.28,
+    });
+    const concreteWallCentralMat = new THREE.MeshStandardMaterial({
+      map: blockWallTexCentral,
+      roughness: 0.9,
+      metalness: 0.03,
+      envMapIntensity: 0.26,
+    });
+    const copingMat = new THREE.MeshStandardMaterial({
+      color: '#2d3233',
+      roughness: 0.88,
+      metalness: 0.04,
+      envMapIntensity: 0.28,
+    });
+    const ironFenceMat = new THREE.MeshStandardMaterial({
+      color: '#1b2024',
+      roughness: 0.52,
+      metalness: 0.72,
+      envMapIntensity: 0.35,
+    });
+
+    const addSchoolPerimeterSpan = (
+      targetGroup: THREE.Group,
+      x1: number,
+      z1: number,
+      x2: number,
+      z2: number,
+      wallMat: THREE.Material
+    ) => {
+      const dx = x2 - x1;
+      const dz = z2 - z1;
+      const spanLen = Math.hypot(dx, dz);
+      const angle = Math.atan2(dx, dz); // rota para alinear a lo largo del eje Z local
+      const span = new THREE.Group();
+      span.position.set((x1 + x2) * 0.5, 0, (z1 + z2) * 0.5);
+      span.rotation.y = angle;
+
+      // Muro inferior de bloques de concreto (1.62m) + cornisa superior
+      const baseWall = new THREE.Mesh(new THREE.BoxGeometry(0.26, 1.62, spanLen), wallMat);
+      baseWall.position.y = 0.81;
+      baseWall.castShadow = !this.isSoftwareGl;
+      baseWall.receiveShadow = !this.isSoftwareGl;
+      span.add(baseWall);
+
+      const coping = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.1, spanLen + 0.06), copingMat);
+      coping.position.y = 1.67;
+      coping.castShadow = !this.isSoftwareGl;
+      span.add(coping);
+
+      // Pilares estructurales de concreto cada ~2.6m
+      const pillarCount = Math.max(2, Math.round(spanLen / 2.6) + 1);
+      for (let i = 0; i < pillarCount; i++) {
+        const pz = -spanLen * 0.5 + (i / (pillarCount - 1)) * spanLen;
+        const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.78, 0.36), copingMat);
+        pillar.position.set(0, 0.89, pz);
+        pillar.castShadow = !this.isSoftwareGl;
+        span.add(pillar);
+      }
+
+      // Reja metálica superior (y = 1.72 .. 2.62) para cerrar visualmente sin cortar el cielo
+      [1.82, 2.58].forEach((ry) => {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.045, spanLen), ironFenceMat);
+        rail.position.y = ry;
+        span.add(rail);
+      });
+      const picketCount = Math.max(4, Math.floor(spanLen / 0.34));
+      const picketGeo = new THREE.BoxGeometry(0.025, 0.86, 0.025);
+      const pickets = new THREE.InstancedMesh(picketGeo, ironFenceMat, picketCount);
+      const dummy = new THREE.Object3D();
+      for (let p = 0; p < picketCount; p++) {
+        const pz = -spanLen * 0.5 + ((p + 0.5) / picketCount) * spanLen;
+        dummy.position.set(0, 2.2, pz);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        pickets.setMatrixAt(p, dummy.matrix);
+      }
+      pickets.instanceMatrix.needsUpdate = true;
+      span.add(pickets);
+
+      targetGroup.add(span);
+    };
+
+    // Cierre completo de Aparcabicicletas: Norte (z=-25.2), Este (x=30.5) y Oeste (x=21.8)
+    addSchoolPerimeterSpan(this.floor1Group, 21.8, -25.2, 30.5, -25.2, concreteWallMat);
+    addSchoolPerimeterSpan(this.floor1Group, 30.5, -25.2, 30.5, -15.1, concreteWallSideMat);
+    addSchoolPerimeterSpan(this.floor1Group, 21.8, -25.2, 21.8, -15.1, concreteWallSideMat);
+
+    // Muro perimetral del fondo del patio central visible desde las ventanas de pasillo (1F y 2F)
+    addSchoolPerimeterSpan(this.floor1Group, -23.7, -25.2, 21.8, -25.2, concreteWallCentralMat);
+
+    // Setos densos oscuros pegados a los muros del aparcabicicletas para ocultar bordes duros
+    const hedgeMat = new THREE.MeshStandardMaterial({
+      color: '#1d281f',
+      roughness: 0.9,
+      envMapIntensity: 0.24,
+    });
+    const bushGeo = new THREE.DodecahedronGeometry(0.68, 1);
+    const bushPositions: Array<[number, number, number]> = [
+      // Base oeste del aparcabicicletas
+      [22.35, 0.42, -16.2],
+      [22.35, 0.48, -17.6],
+      [22.35, 0.44, -19.2],
+      [22.35, 0.5, -21.0],
+      [22.35, 0.46, -22.8],
+      [22.35, 0.48, -24.4],
+      // Base norte detrás del aparcabicicletas
+      [24.0, 0.46, -24.65],
+      [25.6, 0.44, -24.65],
+      [27.2, 0.48, -24.65],
+      [29.4, 0.46, -24.65],
+      // Costado este exterior detrás de la reja
+      [30.95, 0.52, -16.4],
+      [30.95, 0.56, -18.5],
+      [30.95, 0.5, -20.8],
+      [30.95, 0.58, -23.2],
+      // Costado oeste exterior (patio central junto a la reja)
+      [21.2, 0.55, -16.6],
+      [21.2, 0.52, -19.4],
+      [21.2, 0.58, -22.4],
+    ];
+    bushPositions.forEach(([bx, by, bz], idx) => {
+      const bush = new THREE.Mesh(bushGeo, hedgeMat);
+      bush.position.set(bx, by, bz);
+      bush.scale.set(0.95 + (idx % 3) * 0.14, 0.8 + (idx % 2) * 0.18, 1.05);
+      bush.castShadow = !this.isSoftwareGl;
+      bush.receiveShadow = !this.isSoftwareGl;
+      this.floor1Group.add(bush);
+    });
+
+    // Árboles oscuros más allá de las rejas (patio aparcabicicletas + patio central) para siluetas contra el cielo
+    const trunkMat = new THREE.MeshStandardMaterial({
+      color: '#241c16',
+      roughness: 0.9,
+      envMapIntensity: 0.25,
+    });
+    const foliageMat = new THREE.MeshStandardMaterial({
+      color: '#243025',
+      roughness: 0.84,
+      envMapIntensity: 0.28,
+    });
+    const addCourtyardTree = (targetGroup: THREE.Group, tx: number, ty: number, tz: number) => {
+      const tree = new THREE.Group();
+      tree.position.set(tx, ty, tz);
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 3.4, 8), trunkMat);
+      trunk.position.y = 1.7;
+      trunk.castShadow = !this.isSoftwareGl;
+      tree.add(trunk);
+      const canopy1 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.65, 1), foliageMat);
+      canopy1.position.set(0, 3.7, 0);
+      canopy1.castShadow = !this.isSoftwareGl;
+      tree.add(canopy1);
+      const canopy2 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.2, 1), foliageMat);
+      canopy2.position.set(0.7, 3.1, 0.4);
+      canopy2.castShadow = !this.isSoftwareGl;
+      tree.add(canopy2);
+      targetGroup.add(tree);
+    };
+
     [
       [23.0, -27.2],
       [27.8, -27.8],
-      [32.2, -22.5],
+      [32.4, -22.5],
+      [32.2, -17.8],
+      [19.8, -20.5],
+      [14.0, -21.5],
+      [-14.5, -21.0],
+      [-2.0, -22.5],
     ].forEach(([tx, tz]) => {
-      const tree = new THREE.Group();
-      tree.position.set(tx, 0, tz);
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 3.2, 8), trunkMat);
-      trunk.position.y = 1.6;
-      tree.add(trunk);
-      const canopy1 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.55, 1), foliageMat);
-      canopy1.position.set(0, 3.5, 0);
-      tree.add(canopy1);
-      const canopy2 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.15, 1), foliageMat);
-      canopy2.position.set(0.7, 2.9, 0.4);
-      tree.add(canopy2);
-      this.floor1Group.add(tree);
+      addCourtyardTree(this.floor1Group, tx, 0, tz);
     });
 
-    // Translucent Bike Shelter + 4 Composite Bicycles
+    // Árboles en el patio central visibles desde las ventanas del 2° piso
+    [
+      [-15.5, -18.5],
+      [-4.0, -21.0],
+      [10.5, -19.5],
+      [18.5, -17.5],
+    ].forEach(([tx, tz]) => {
+      addCourtyardTree(this.floor2Group, tx, -3.5, tz);
+    });
+
+    // Cobertizo metálico envejecido + 4 bicicletas con pintura apagada atmosférica
     const shelter = new THREE.Group();
     shelter.position.set(27.5, 0, -22.4);
-    const steelMat = new THREE.MeshStandardMaterial({ color: '#94a3b8', roughness: 0.32, metalness: 0.82 });
+    const steelMat = new THREE.MeshStandardMaterial({
+      color: '#4e5963',
+      roughness: 0.42,
+      metalness: 0.78,
+      envMapIntensity: 0.4,
+    });
     const roofMat = new THREE.MeshStandardMaterial({
-      color: '#bae6fd',
-      roughness: 0.18,
-      metalness: 0.1,
+      color: '#6f8c96',
+      roughness: 0.28,
+      metalness: 0.08,
       transparent: true,
-      opacity: 0.45,
+      opacity: 0.36,
       depthWrite: false,
+      envMapIntensity: 0.38,
     });
     [-2.1, 2.1].forEach((sx) => {
       [-1.1, 1.1].forEach((sz) => {
         const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.35, 10), steelMat);
         leg.position.set(sx, 1.175, sz);
+        leg.castShadow = !this.isSoftwareGl;
         shelter.add(leg);
       });
+    });
+    [-1.1, 1.1].forEach((bz) => {
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.06, 0.06), steelMat);
+      beam.position.set(0, 2.34, bz);
+      beam.castShadow = !this.isSoftwareGl;
+      shelter.add(beam);
     });
     const shelterRoof = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.07, 2.8), roofMat);
     shelterRoof.position.set(0, 2.4, 0);
     shelterRoof.rotation.x = 0.12;
     shelter.add(shelterRoof);
 
-    // 4 Composite Bicycles (wheels + frame + handlebar + saddle)
-    const tireMat = new THREE.MeshStandardMaterial({ color: '#1c1917', roughness: 0.85 });
-    const frameColors = ['#dc2626', '#0284c7', '#eab308', '#16a34a'];
+    // 4 Bicicletas compuestas en tonos desgastados coherentes con la paleta nocturna
+    const tireMat = new THREE.MeshStandardMaterial({ color: '#161514', roughness: 0.88, envMapIntensity: 0.25 });
+    const frameColors = ['#6e1e24', '#1e3a54', '#6e541c', '#1f3d2b'];
     [-1.35, -0.45, 0.45, 1.35].forEach((bx, idx) => {
       const bike = this.createCompositeBicycle(frameColors[idx], steelMat, tireMat);
       bike.position.set(bx, 0, 0);
@@ -1043,17 +2065,18 @@ export class SchoolEngine {
     });
     this.floor1Group.add(shelter);
 
-    // Swirling Autumn Leaves (InstancedMesh reactive to Shake sensor!)
+    // Hojas secas otoñales apagadas (InstancedMesh reactivo al sensor de sacudida)
     const leafCount = 90;
     const leafGeo = new THREE.PlaneGeometry(0.18, 0.12);
     const leafMat = new THREE.MeshStandardMaterial({
-      color: '#ea580c',
-      roughness: 0.6,
+      color: '#8c3816',
+      roughness: 0.72,
       side: THREE.DoubleSide,
+      envMapIntensity: 0.3,
     });
     this.leavesInstanced = new THREE.InstancedMesh(leafGeo, leafMat, leafCount);
     this.leavesInstanced.frustumCulled = false;
-    const leafPalette = [new THREE.Color('#ea580c'), new THREE.Color('#f59e0b'), new THREE.Color('#b91c1c')];
+    const leafPalette = [new THREE.Color('#8c3816'), new THREE.Color('#7a4c18'), new THREE.Color('#5c1d1d')];
 
     for (let i = 0; i < leafCount; i++) {
       this.leafSeeds.push({
@@ -1067,7 +2090,7 @@ export class SchoolEngine {
     }
     this.floor1Group.add(this.leavesInstanced);
 
-    // 4. Pasillo Aula 1B — Acoustic Japanese Wind Chime (Fūrin) + Audio Particles at (-9.2, 0, -1.2)
+    // 4. Pasillo Aula 1B — Campanita de Viento Japonesa (Fūrin) en (-9.2, 0, -1.2)
     this.windChimeGroup = new THREE.Group();
     this.windChimeGroup.position.set(-9.2, 3.05, -1.2);
 
@@ -1100,27 +2123,6 @@ export class SchoolEngine {
     tanzakuSlip.position.y = -0.52;
     this.windChimeGroup.add(tanzakuSlip);
     this.floor1Group.add(this.windChimeGroup);
-
-    // Audio-reactive spirit dust ring around Wind Chime
-    const pCount = 64;
-    const pPositions = new Float32Array(pCount * 3);
-    for (let i = 0; i < pCount; i++) {
-      const a = (i / pCount) * Math.PI * 2;
-      const r = 0.6 + (i % 4) * 0.25;
-      pPositions[i * 3] = -9.2 + Math.cos(a) * r;
-      pPositions[i * 3 + 1] = 1.1 + (i % 8) * 0.22;
-      pPositions[i * 3 + 2] = -1.2 + Math.sin(a) * r;
-    }
-    const pGeo = new THREE.BufferGeometry();
-    pGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
-    const pMat = new THREE.PointsMaterial({
-      color: '#7dd3fc',
-      size: 0.08,
-      transparent: true,
-      opacity: 0.75,
-    });
-    this.acousticParticles = new THREE.Points(pGeo, pMat);
-    this.floor1Group.add(this.acousticParticles);
   }
 
   private createCompositeBicycle(
@@ -1129,20 +2131,28 @@ export class SchoolEngine {
     tireMat: THREE.Material
   ): THREE.Group {
     const bike = new THREE.Group();
-    const paintMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.3, metalness: 0.55 });
+    const paintMat = new THREE.MeshStandardMaterial({
+      color: colorHex,
+      roughness: 0.44,
+      metalness: 0.45,
+      envMapIntensity: 0.38,
+    });
 
     const wheelGeo = new THREE.TorusGeometry(0.32, 0.035, 10, 22);
     const backWheel = new THREE.Mesh(wheelGeo, tireMat);
     backWheel.position.set(-0.52, 0.35, 0);
+    backWheel.castShadow = !this.isSoftwareGl;
     bike.add(backWheel);
 
     const frontWheel = new THREE.Mesh(wheelGeo, tireMat);
     frontWheel.position.set(0.52, 0.35, 0);
+    frontWheel.castShadow = !this.isSoftwareGl;
     bike.add(frontWheel);
 
     const topTube = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.92, 8), paintMat);
     topTube.position.set(0, 0.68, 0);
     topTube.rotation.z = Math.PI / 2;
+    topTube.castShadow = !this.isSoftwareGl;
     bike.add(topTube);
 
     const seatPost = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.55, 8), paintMat);
@@ -1216,7 +2226,7 @@ export class SchoolEngine {
     this.hanakoSealRing.position.z = 0.06;
     mirrorGroup.add(this.hanakoSealRing);
 
-    const bathLight = new THREE.PointLight('#bae6fd', 1.4, 12);
+    const bathLight = new THREE.PointLight('#94b8c8', 1.05, 12);
     bathLight.position.set(26.2, 2.95, -20.5);
     this.floor2Group.add(bathLight);
     this.floor2Group.add(mirrorGroup);
@@ -1289,15 +2299,16 @@ export class SchoolEngine {
     this.astrolabeOuterGimbal.add(this.astrolabeInnerGimbal);
     cofferBase.add(this.astrolabeOuterGimbal);
 
-    const staffLight = new THREE.PointLight('#fde68a', 1.7, 12);
+    const staffLight = new THREE.PointLight('#d9c296', 1.2, 12);
     staffLight.position.set(-25.8, 2.95, -21.5);
     this.floor2Group.add(staffLight);
     this.floor2Group.add(cofferBase);
   }
 
   private buildMarkers() {
-    WORLD_MARKERS.forEach((marker, idx) => {
+    WORLD_MARKERS.forEach((marker) => {
       const root = new THREE.Group();
+      root.userData.isInteractiveMarker = true;
       root.position.set(marker.position[0], marker.position[1], marker.position[2]);
 
       const accentHex =
@@ -1372,9 +2383,10 @@ export class SchoolEngine {
           new THREE.MeshStandardMaterial({
             color: '#38bdf8',
             emissive: '#0284c7',
-            emissiveIntensity: 0.85,
-            roughness: 0.2,
-            metalness: 0.5,
+            emissiveIntensity: 0.22,
+            toneMapped: true,
+            roughness: 0.25,
+            metalness: 0.45,
           })
         );
         diamond.position.y = 2.08;
@@ -1385,9 +2397,10 @@ export class SchoolEngine {
           new THREE.MeshStandardMaterial({
             color: '#f43f5e',
             emissive: '#e11d48',
-            emissiveIntensity: 0.8,
-            roughness: 0.22,
-            metalness: 0.55,
+            emissiveIntensity: 0.22,
+            toneMapped: true,
+            roughness: 0.25,
+            metalness: 0.45,
           })
         );
         gem.position.y = 1.15;
@@ -1397,8 +2410,8 @@ export class SchoolEngine {
           new THREE.TorusGeometry(0.34, 0.02, 10, 28),
           new THREE.MeshStandardMaterial({
             color: '#fda4af',
-            roughness: 0.25,
-            metalness: 0.8,
+            roughness: 0.28,
+            metalness: 0.75,
           })
         );
         halo.position.y = 1.15;
@@ -1409,10 +2422,14 @@ export class SchoolEngine {
         const stairMat = new THREE.MeshStandardMaterial({
           color: '#facc15',
           emissive: '#ca8a04',
-          emissiveIntensity: 0.8,
-          roughness: 0.25,
-          metalness: 0.65,
+          emissiveIntensity: 0.22,
+          toneMapped: true,
+          roughness: 0.28,
+          metalness: 0.55,
+          transparent: true,
+          opacity: 0.48,
         });
+        stairMat.needsUpdate = true;
         const coneDir = marker.targetFloor === 2 ? 1 : -1;
         [0.95, 1.32].forEach((cy) => {
           const cone = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.28, 4), stairMat);
@@ -1421,19 +2438,6 @@ export class SchoolEngine {
           floatingCore.add(cone);
         });
       }
-
-      // Floating World Label Plaque
-      const plaqueTex = createMarkerPlaqueTexture(marker.label, marker.sublabel, accentHex);
-      const spriteMat = new THREE.SpriteMaterial({
-        map: plaqueTex,
-        transparent: true,
-        depthWrite: false,
-      });
-      const labelSprite = new THREE.Sprite(spriteMat);
-      labelSprite.scale.set(1.65, 0.52, 1);
-      labelSprite.position.y =
-        marker.kind === 'escalera' ? 1.85 : 2.24;
-      root.add(labelSprite);
 
       // Simplified invisible cylinder proxy (DoubleSide so close-range internal rays hit cleanly)
       const hitProxy = new THREE.Mesh(
@@ -1459,10 +2463,10 @@ export class SchoolEngine {
       };
       this.markersById.set(marker.id, visRecord);
 
-      // Attach official GLB marker ("objeto" or "persona") with native LoopRepeat + Math.sin Y float
+      // Attach official GLB marker ("objeto" or "persona") con rotación constante sobre Y en posición fija
       if (marker.kind === 'objeto' || marker.kind === 'personaje') {
         const glbKind = marker.kind === 'personaje' ? 'persona' : 'objeto';
-        void this.attachAnimatedGlbMarker(glbKind, visRecord, idx * 0.65);
+        void this.attachAnimatedGlbMarker(glbKind, visRecord);
       }
     });
 
@@ -1471,15 +2475,10 @@ export class SchoolEngine {
 
   private async attachAnimatedGlbMarker(
     glbKind: 'objeto' | 'persona',
-    visRecord: MarkerVisual,
-    phaseOffset: number
+    visRecord: MarkerVisual
   ) {
     try {
-      const instance = await createGlbMarkerInstance(glbKind, {
-        floatFrequency: 2.15,
-        floatAmplitude: 0.14,
-        phaseOffset,
-      });
+      const instance = await createGlbMarkerInstance(glbKind);
 
       if (this.disposed) {
         instance.dispose();
@@ -1529,6 +2528,7 @@ export class SchoolEngine {
 
     this.lastNearbyId = null;
     this.callbacks.onNearbyMarkerChange(null);
+    this.updateSunShadowTracking();
     this.updateZoneAndProximity();
   }
 
@@ -1556,22 +2556,6 @@ export class SchoolEngine {
     const isDoorUnlocked =
       this.currentPhase === 'ESTADO_FINAL' &&
       (this.finalSubstate === 'puerta_desbloqueada' || this.finalSubstate === 'completada');
-
-    if (this.destDoorMat && this.destDoorLockedTex && this.destDoorUnlockedTex) {
-      const targetTex = isDoorUnlocked ? this.destDoorUnlockedTex : this.destDoorLockedTex;
-      if (this.destDoorMat.map !== targetTex) {
-        this.destDoorMat.map = targetTex;
-        this.destDoorMat.needsUpdate = true;
-      }
-    }
-
-    if (this.destDoorPlaqueMat && this.destPlaqueLockedTex && this.destPlaqueUnlockedTex) {
-      const targetPlaque = isDoorUnlocked ? this.destPlaqueUnlockedTex : this.destPlaqueLockedTex;
-      if (this.destDoorPlaqueMat.map !== targetPlaque) {
-        this.destDoorPlaqueMat.map = targetPlaque;
-        this.destDoorPlaqueMat.needsUpdate = true;
-      }
-    }
 
     if (this.destDoorThresholdRing) {
       this.destDoorThresholdRing.visible = isDoorUnlocked;
@@ -1624,7 +2608,11 @@ export class SchoolEngine {
   }
 
   public captureScreenshot(): string {
-    this.renderer.render(this.scene, this.camera);
+    if (this.composer && !this.isSoftwareGl) {
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
     return this.renderer.domElement.toDataURL('image/png');
   }
 
@@ -1881,14 +2869,14 @@ export class SchoolEngine {
   }
 
   private updateReactiveWorldProps(delta: number, elapsed: number) {
-    // 1. Animate GLB markers (AnimationMixer LoopRepeat + Math.sin Y float) and fallback markers
+    // 1. Animate GLB markers (únicamente rotación constante en Y en posición fija) and fallback markers
     this.markersById.forEach((vis) => {
       if (vis.marker.floor !== this.currentFloor || !vis.root.visible) return;
 
       if (vis.glbInstance) {
-        vis.glbInstance.update(delta, elapsed);
+        vis.glbInstance.update(delta);
       } else {
-        vis.floatingCore.position.y = Math.sin(elapsed * 2.4 + vis.marker.position[0]) * 0.08;
+        vis.floatingCore.position.y = 0;
         vis.floatingCore.rotation.y = elapsed * 1.1;
 
         if (vis.standeeMesh) {
@@ -1966,15 +2954,11 @@ export class SchoolEngine {
       this.leavesInstanced.instanceMatrix.needsUpdate = true;
     }
 
-    // 4. Wind Chime & Acoustic Particles in Hallway 1B react to Microphone!
-    if (this.windChimeGroup && this.acousticParticles && this.currentFloor === 1) {
+    // 4. Campanita de viento en el pasillo frente a 1B reactiva al micrófono
+    if (this.windChimeGroup && this.currentFloor === 1) {
       const vol = sensorService.audioMetrics.volume;
       this.windChimeGroup.rotation.z = Math.sin(elapsed * 7.5) * (0.04 + vol * 0.48);
       this.windChimeGroup.rotation.x = Math.cos(elapsed * 6.2) * (0.03 + vol * 0.35);
-
-      const pMat = this.acousticParticles.material as THREE.PointsMaterial;
-      pMat.size = 0.06 + vol * 0.18;
-      this.acousticParticles.rotation.y = elapsed * (0.25 + vol * 2.2);
     }
 
     // 5. Bathroom Mirror on 2F updates WebRTC VideoTexture & glows in darkness!
@@ -2057,8 +3041,14 @@ export class SchoolEngine {
     if (!this.isPaused && !this.externallyPaused && !document.hidden) {
       sensorService.update(delta, elapsed);
       this.updateMovement(delta);
+      this.updateSunShadowTracking();
       this.updateZoneAndProximity();
       this.updateReactiveWorldProps(delta, elapsed);
+
+      if (this.skybox) {
+        this.skybox.uniforms.uTime.value = elapsed;
+        this.skybox.mesh.position.set(this.playerPos.x, 0, this.playerPos.z);
+      }
 
       if (elapsed - this.lastHudSyncTime > 0.12) {
         this.lastHudSyncTime = elapsed;
@@ -2070,7 +3060,11 @@ export class SchoolEngine {
         });
       }
 
-      this.renderer.render(this.scene, this.camera);
+      if (this.composer && !this.isSoftwareGl) {
+        this.composer.render();
+      } else {
+        this.renderer.render(this.scene, this.camera);
+      }
     }
 
     this.scheduleNextFrame();
@@ -2093,9 +3087,15 @@ export class SchoolEngine {
     if (this.disposed) return;
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
+    const pixelRatio = this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
+    this.renderer.setPixelRatio(pixelRatio);
     this.renderer.setSize(width, height);
+    if (this.composer && !this.isSoftwareGl) {
+      this.composer.setPixelRatio(pixelRatio);
+      this.composer.setSize(width, height);
+    }
   };
 
   private handleVisibility = () => {
@@ -2172,10 +3172,26 @@ export class SchoolEngine {
       }
     });
 
-    this.destDoorLockedTex?.dispose();
-    this.destDoorUnlockedTex?.dispose();
-    this.destPlaqueLockedTex?.dispose();
-    this.destPlaqueUnlockedTex?.dispose();
+    this.sharedTextures.forEach((t) => t.dispose());
+    this.sharedTextures = [];
+
+    if (this.skybox) {
+      this.skybox.dispose();
+      this.skybox = null;
+    }
+
+    if (this.bloomPass) {
+      this.bloomPass.dispose();
+      this.bloomPass = null;
+    }
+    if (this.composer) {
+      this.composer.dispose();
+      this.composer = null;
+    }
+    if (this.scene.environment) {
+      this.scene.environment.dispose();
+      this.scene.environment = null;
+    }
 
     soundEngine.detachCamera(this.camera);
     this.renderer.dispose();

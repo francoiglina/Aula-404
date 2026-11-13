@@ -1571,6 +1571,16 @@
   }
 }
 
+/* Viñeta cinemática CSS sin costo GPU sobre el viewport 3D */
+.scene-cinematic-vignette {
+  background: radial-gradient(
+    ellipse 76% 72% at 50% 50%,
+    rgba(0, 0, 0, 0) 56%,
+    rgba(6, 11, 13, 0.34) 84%,
+    rgba(3, 6, 8, 0.72) 100%
+  );
+}
+
 
 
 
