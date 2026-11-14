@@ -23,6 +23,7 @@ export interface AparcabicicletasFoliageHandle {
 export interface AparcabicicletasLeafSystemOptions {
   targetGroup: THREE.Group;
   isSoftwareGl: boolean;
+  isMobileDevice?: boolean;
   onLoaded?: (handle: AparcabicicletasFoliageHandle) => void;
   onError?: (error: unknown) => void;
 }
@@ -146,28 +147,23 @@ export function loadAparcabicicletasLeafInstancing(
       const { geometry: leafGeometry, baseMaterial } = assets;
       const extractedTextures: THREE.Texture[] = [];
       if (baseMaterial?.map) extractedTextures.push(baseMaterial.map);
-      if (baseMaterial?.normalMap) extractedTextures.push(baseMaterial.normalMap);
-      if (baseMaterial?.roughnessMap) extractedTextures.push(baseMaterial.roughnessMap);
 
-      const leafMaterial = new THREE.MeshStandardMaterial({
+      // Material Lambert ligero (conserva exactamente color, textura, alphaTest y respuesta a niebla)
+      const leafMaterial = new THREE.MeshLambertMaterial({
         color: 0xffffff,
         map: baseMaterial?.map ?? null,
-        normalMap: baseMaterial?.normalMap ?? null,
-        roughnessMap: baseMaterial?.roughnessMap ?? null,
         alphaTest:
           baseMaterial?.alphaTest && baseMaterial.alphaTest > 0 ? baseMaterial.alphaTest : 0.42,
-        roughness: 0.84,
-        metalness: 0.0,
         side: THREE.DoubleSide,
-        envMapIntensity: 0.28,
+        fog: true,
       });
 
       const rand = createSeededRandom(4042026);
       const dummy = new THREE.Object3D();
       const tempColor = new THREE.Color();
 
-      // Remolino de hojas sobre las bicicletas (exclusivo con leaf.glb, mayor densidad: 90 -> 126)
-      const swirlingLeafCount = options.isSoftwareGl ? 96 : 126;
+      // Remolino de hojas sobre las bicicletas (exclusivo con leaf.glb)
+      const swirlingLeafCount = options.isSoftwareGl ? 72 : options.isMobileDevice ? 84 : 126;
       const swirlingInstanced = new THREE.InstancedMesh(
         leafGeometry,
         leafMaterial,

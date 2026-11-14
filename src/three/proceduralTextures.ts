@@ -307,37 +307,20 @@ export function createStoneTileTexture(
 }
 
 /**
- * Genera mapas PBR compartidos (512x512) de concreto/asfalto frío húmedo envejecido
+ * Genera textura difusa compartida (512x512) de concreto/asfalto frío húmedo envejecido
  * para el patio exterior del aparcabicicletas (sin ningún tono ni veta de madera).
  */
-export function createOutdoorConcretePbrMaps(maxAnisotropy: number): OutdoorGroundPbrMaps {
+export function createOutdoorConcreteTexture(maxAnisotropy: number): THREE.CanvasTexture {
   const colorCanvas = document.createElement('canvas');
   colorCanvas.width = 512;
   colorCanvas.height = 512;
   const ctx = colorCanvas.getContext('2d')!;
 
-  const roughCanvas = document.createElement('canvas');
-  roughCanvas.width = 512;
-  roughCanvas.height = 512;
-  const rCtx = roughCanvas.getContext('2d')!;
-
-  const bumpCanvas = document.createElement('canvas');
-  bumpCanvas.width = 512;
-  bumpCanvas.height = 512;
-  const bCtx = bumpCanvas.getContext('2d')!;
-
   // Base fría gris-pizarra húmeda
   ctx.fillStyle = '#252a2c';
   ctx.fillRect(0, 0, 512, 512);
 
-  // Rugosidad base mate (~0.84) con zonas húmedas más brillantes
-  rCtx.fillStyle = 'rgb(214, 214, 214)';
-  rCtx.fillRect(0, 0, 512, 512);
-
-  bCtx.fillStyle = 'rgb(142, 142, 142)';
-  bCtx.fillRect(0, 0, 512, 512);
-
-  // Losas de pavimento de cemento envejecido (4x4) con ligera variación tonal y humedad
+  // Losas de pavimento de cemento envejecido (4x4) con ligera variación tonal
   const tiles = 4;
   const step = 512 / tiles;
   for (let row = 0; row < tiles; row++) {
@@ -347,10 +330,6 @@ export function createOutdoorConcretePbrMaps(maxAnisotropy: number): OutdoorGrou
       const tone = Math.floor((hash2d(row * 7 + col, 13) - 0.5) * 12);
       ctx.fillStyle = `rgb(${39 + tone}, ${44 + tone}, ${46 + tone})`;
       ctx.fillRect(x + 2, y + 2, step - 4, step - 4);
-
-      const roughTile = Math.floor(196 + hash2d(col * 5 + row, 29) * 32);
-      rCtx.fillStyle = `rgb(${roughTile}, ${roughTile}, ${roughTile})`;
-      rCtx.fillRect(x + 2, y + 2, step - 4, step - 4);
     }
   }
 
@@ -365,13 +344,6 @@ export function createOutdoorConcretePbrMaps(maxAnisotropy: number): OutdoorGrou
     dampGrad.addColorStop(1, 'rgba(16, 21, 24, 0)');
     ctx.fillStyle = dampGrad;
     ctx.fillRect(px - pr, py - pr, pr * 2, pr * 2);
-
-    // Zonas húmedas con menor rugosidad (~0.36) para reflejar sutilmente el cielo frío
-    const rGrad = rCtx.createRadialGradient(px, py, 2, px, py, pr * 0.85);
-    rGrad.addColorStop(0, 'rgba(92, 92, 92, 0.72)');
-    rGrad.addColorStop(1, 'rgba(205, 205, 205, 0)');
-    rCtx.fillStyle = rGrad;
-    rCtx.fillRect(px - pr, py - pr, pr * 2, pr * 2);
   }
 
   // Micro-grano mineral del concreto/asfalto
@@ -380,14 +352,84 @@ export function createOutdoorConcretePbrMaps(maxAnisotropy: number): OutdoorGrou
     const gy = Math.floor(hash2d(g, 11) * 510);
     ctx.fillStyle = g % 2 === 0 ? 'rgba(12, 15, 16, 0.24)' : 'rgba(120, 132, 136, 0.08)';
     ctx.fillRect(gx, gy, 2, 2);
+  }
 
+  // Juntas de dilatación
+  ctx.strokeStyle = '#141819';
+  ctx.lineWidth = 3;
+  for (let i = 0; i <= tiles; i++) {
+    const pos = i * step;
+    ctx.beginPath();
+    ctx.moveTo(pos, 0);
+    ctx.lineTo(pos, 512);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, pos);
+    ctx.lineTo(512, pos);
+    ctx.stroke();
+  }
+
+  const map = new THREE.CanvasTexture(colorCanvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapS = THREE.RepeatWrapping;
+  map.wrapT = THREE.RepeatWrapping;
+  map.anisotropy = maxAnisotropy;
+  return map;
+}
+
+/**
+ * Genera mapas PBR compartidos (512x512) de concreto/asfalto frío húmedo envejecido
+ * para el patio exterior del aparcabicicletas (sin ningún tono ni veta de madera).
+ */
+export function createOutdoorConcretePbrMaps(maxAnisotropy: number): OutdoorGroundPbrMaps {
+  const map = createOutdoorConcreteTexture(maxAnisotropy);
+
+  const roughCanvas = document.createElement('canvas');
+  roughCanvas.width = 512;
+  roughCanvas.height = 512;
+  const rCtx = roughCanvas.getContext('2d')!;
+
+  const bumpCanvas = document.createElement('canvas');
+  bumpCanvas.width = 512;
+  bumpCanvas.height = 512;
+  const bCtx = bumpCanvas.getContext('2d')!;
+
+  rCtx.fillStyle = 'rgb(214, 214, 214)';
+  rCtx.fillRect(0, 0, 512, 512);
+
+  bCtx.fillStyle = 'rgb(142, 142, 142)';
+  bCtx.fillRect(0, 0, 512, 512);
+
+  const tiles = 4;
+  const step = 512 / tiles;
+  for (let row = 0; row < tiles; row++) {
+    for (let col = 0; col < tiles; col++) {
+      const x = col * step;
+      const y = row * step;
+      const roughTile = Math.floor(196 + hash2d(col * 5 + row, 29) * 32);
+      rCtx.fillStyle = `rgb(${roughTile}, ${roughTile}, ${roughTile})`;
+      rCtx.fillRect(x + 2, y + 2, step - 4, step - 4);
+    }
+  }
+
+  for (let p = 0; p < 16; p++) {
+    const px = hash2d(p, 41) * 512;
+    const py = hash2d(p, 53) * 512;
+    const pr = 26 + hash2d(p, 61) * 64;
+    const rGrad = rCtx.createRadialGradient(px, py, 2, px, py, pr * 0.85);
+    rGrad.addColorStop(0, 'rgba(92, 92, 92, 0.72)');
+    rGrad.addColorStop(1, 'rgba(205, 205, 205, 0)');
+    rCtx.fillStyle = rGrad;
+    rCtx.fillRect(px - pr, py - pr, pr * 2, pr * 2);
+  }
+
+  for (let g = 0; g < 1600; g++) {
+    const gx = Math.floor(hash2d(g, 7) * 510);
+    const gy = Math.floor(hash2d(g, 11) * 510);
     bCtx.fillStyle = g % 2 === 0 ? 'rgba(98, 98, 98, 0.35)' : 'rgba(182, 182, 182, 0.25)';
     bCtx.fillRect(gx, gy, 2, 2);
   }
 
-  // Juntas de dilatación y fisuras sutiles
-  ctx.strokeStyle = '#141819';
-  ctx.lineWidth = 3;
   rCtx.strokeStyle = 'rgb(240, 240, 240)';
   rCtx.lineWidth = 3;
   bCtx.strokeStyle = 'rgb(42, 42, 42)';
@@ -395,7 +437,7 @@ export function createOutdoorConcretePbrMaps(maxAnisotropy: number): OutdoorGrou
 
   for (let i = 0; i <= tiles; i++) {
     const pos = i * step;
-    [ctx, rCtx, bCtx].forEach((c) => {
+    [rCtx, bCtx].forEach((c) => {
       c.beginPath();
       c.moveTo(pos, 0);
       c.lineTo(pos, 512);
@@ -406,12 +448,6 @@ export function createOutdoorConcretePbrMaps(maxAnisotropy: number): OutdoorGrou
       c.stroke();
     });
   }
-
-  const map = new THREE.CanvasTexture(colorCanvas);
-  map.colorSpace = THREE.SRGBColorSpace;
-  map.wrapS = THREE.RepeatWrapping;
-  map.wrapT = THREE.RepeatWrapping;
-  map.anisotropy = maxAnisotropy;
 
   const roughnessMap = new THREE.CanvasTexture(roughCanvas);
   roughnessMap.wrapS = THREE.RepeatWrapping;

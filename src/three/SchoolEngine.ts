@@ -26,11 +26,11 @@ import {
   createCharacterStandeeTexture,
   createConcreteBlockWallTexture,
   createLockerTexture,
-  createOutdoorConcretePbrMaps,
+  createOutdoorConcreteTexture,
   createSchoolWallTexture,
   createSlidingDoorTexture,
   createStoneTileTexture,
-  createWoodFloorPbrMaps,
+  createWoodPlankTexture,
   createWoodenSignTexture,
 } from './proceduralTextures';
 import { AtmosphericSkyboxHandle, createAtmosphericSkybox } from './skybox';
@@ -49,6 +49,7 @@ interface MarkerVisual {
   fallbackVisual: THREE.Group;
   glbInstance?: GlbMarkerInstance;
   ringMesh: THREE.Mesh;
+  glowSprite?: THREE.Sprite;
   standeeMesh?: THREE.Mesh;
   hitProxy: THREE.Mesh;
 }
@@ -105,6 +106,8 @@ export class SchoolEngine {
   public camera: THREE.PerspectiveCamera;
   private isSoftwareGl: boolean;
   private isMobileDevice: boolean;
+  private usePostProcessing: boolean;
+  private slowFrameCount = 0;
   private composer: EffectComposer | null = null;
   private bloomPass: UnrealBloomPass | null = null;
   private bloomResScale = 0.5;
@@ -118,6 +121,7 @@ export class SchoolEngine {
   private sharedLampMat: THREE.MeshBasicMaterial | null = null;
   private sharedHaloGeo: THREE.PlaneGeometry | null = null;
   private sharedHaloMat: THREE.MeshBasicMaterial | null = null;
+  private glowSpriteTex: THREE.CanvasTexture | null = null;
   private sharedObjLockedRingMat: THREE.MeshBasicMaterial | null = null;
   private sharedObjReadyRingMat: THREE.MeshBasicMaterial | null = null;
 
@@ -157,7 +161,7 @@ export class SchoolEngine {
   private aparcabicicletasFoliageHandle: AparcabicicletasFoliageHandle | null = null;
   private cancelLeafLoad: (() => void) | null = null;
   private windChimeGroup: THREE.Group | null = null;
-  private hanakoMirrorMat: THREE.MeshStandardMaterial | null = null;
+  private hanakoMirrorMat: THREE.MeshLambertMaterial | null = null;
   private hanakoSealRing: THREE.Mesh | null = null;
   private astrolabeOuterGimbal: THREE.Group | null = null;
   private astrolabeInnerGimbal: THREE.Group | null = null;
@@ -195,7 +199,8 @@ export class SchoolEngine {
     this.callbacks = callbacks;
     this.isSoftwareGl = detectSoftwareWebGL();
     this.isMobileDevice = detectMobileDevice();
-    this.bloomResScale = this.isMobileDevice ? 0.35 : 0.5;
+    this.usePostProcessing = !this.isSoftwareGl && !this.isMobileDevice;
+    this.bloomResScale = 0.5;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#0c1315');
@@ -204,43 +209,45 @@ export class SchoolEngine {
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || window.innerHeight;
 
-    this.camera = new THREE.PerspectiveCamera(68, width / height, 0.15, 160);
+    // Far recortado al límite efectivo de la niebla exponencial (0.036) para culling agresivo
+    this.camera = new THREE.PerspectiveCamera(68, width / height, 0.15, 76);
     this.camera.position.copy(this.playerPos);
     soundEngine.attachCamera(this.camera);
 
     this.renderer = new THREE.WebGLRenderer({
-      antialias: !this.isSoftwareGl && !this.isMobileDevice,
+      antialias: false,
       alpha: false,
       powerPreference: 'high-performance',
-      preserveDrawingBuffer: true,
+      preserveDrawingBuffer: false,
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.96;
     this.renderer.setPixelRatio(this.getOptimalPixelRatio());
     this.renderer.setSize(width, height);
-    this.renderer.shadowMap.enabled = !this.isSoftwareGl;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.enabled = this.shadowsEnabled();
+    this.renderer.shadowMap.type = THREE.BasicShadowMap;
     this.renderer.domElement.id = 'three-canvas';
     this.renderer.domElement.className = 'block h-full w-full touch-none outline-none';
 
     container.innerHTML = '';
     container.appendChild(this.renderer.domElement);
 
-    // Entorno PBR ligero (RoomEnvironment) con baja intensidad para reflejos sutiles en madera oscura
-    const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.34;
-    pmremGenerator.dispose();
+    // Entorno PMREM únicamente en escritorio cuando el post-procesado está activo; omitido en móviles
+    if (this.usePostProcessing) {
+      const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+      this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+      this.scene.environmentIntensity = 0.32;
+      pmremGenerator.dispose();
+    }
 
-    // Skybox / Domo atmosférico nocturno coherente con la niebla y la estética japonesa fría
-    this.skybox = createAtmosphericSkybox(95);
+    // Skybox / Domo atmosférico contenido dentro del plano far (radius = 68 < far = 76)
+    this.skybox = createAtmosphericSkybox(68);
     this.scene.add(this.skybox.mesh);
 
     this.createSharedCeilingLampResources();
     this.setupLighting();
     this.buildSchoolArchitecture();
-    this.applyArchitecturalPbrPass();
     this.floorCollisions = {
       1: buildFloorCollisionData(this.floor1Group, 1, WALKABLE_ZONES),
       2: buildFloorCollisionData(this.floor2Group, 2, WALKABLE_ZONES),
@@ -248,16 +255,16 @@ export class SchoolEngine {
     this.buildMarkers();
     this.setupPostProcessing(width, height);
 
-    // Pre-compila ambos pisos (1F y 2F) y sus texturas/sombras durante el arranque
-    // manteniendo exactamente 2 PointLights activos para no recompilar shaders PBR al subir escaleras.
+    // Pre-compila ambos pisos manteniendo exactamente 1 PointLight activo en escena (máx 3 luces totales)
     this.floor1Group.visible = true;
     this.floor2Group.visible = true;
-    this.floor1Lights.forEach((l) => {
-      l.visible = true;
-    });
-    this.floor2Lights.forEach((l) => {
-      l.visible = false;
-    });
+    if (this.floor1Lights.length >= 2) {
+      this.floor1Lights[0].visible = true;
+      this.floor1Lights[1].visible = false;
+    }
+    for (let i = 0; i < this.floor2Lights.length; i++) {
+      this.floor2Lights[i].visible = false;
+    }
     this.updateSunShadowTracking();
 
     if (!this.isSoftwareGl) {
@@ -282,10 +289,12 @@ export class SchoolEngine {
     this.scheduleNextFrame();
   }
 
+  private shadowsEnabled(): boolean {
+    return !this.isSoftwareGl && !this.isMobileDevice;
+  }
+
   private getOptimalPixelRatio(): number {
-    if (this.isSoftwareGl) return 1;
-    const cap = this.isMobileDevice ? 1.25 : 1.5;
-    return Math.min(window.devicePixelRatio || 1, cap);
+    return Math.min(window.devicePixelRatio || 1, 1.0);
   }
 
   private createSharedCeilingLampResources() {
@@ -297,8 +306,8 @@ export class SchoolEngine {
     if (ctx) {
       const grad = ctx.createRadialGradient(64, 32, 4, 64, 32, 62);
       grad.addColorStop(0, 'rgba(224, 242, 254, 0.95)');
-      grad.addColorStop(0.35, 'rgba(186, 230, 253, 0.45)');
-      grad.addColorStop(0.75, 'rgba(186, 230, 253, 0.12)');
+      grad.addColorStop(0.35, 'rgba(186, 230, 253, 0.48)');
+      grad.addColorStop(0.75, 'rgba(186, 230, 253, 0.14)');
       grad.addColorStop(1, 'rgba(186, 230, 253, 0)');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, 128, 64);
@@ -308,18 +317,36 @@ export class SchoolEngine {
     haloTex.colorSpace = THREE.SRGBColorSpace;
     this.sharedTextures.push(haloTex);
 
+    // Aura radial aditiva compartida para compensar ausencia de UnrealBloomPass en móviles
+    const spriteCanvas = document.createElement('canvas');
+    spriteCanvas.width = 64;
+    spriteCanvas.height = 64;
+    const sCtx = spriteCanvas.getContext('2d');
+    if (sCtx) {
+      const sGrad = sCtx.createRadialGradient(32, 32, 2, 32, 32, 31);
+      sGrad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+      sGrad.addColorStop(0.38, 'rgba(255, 255, 255, 0.36)');
+      sGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      sCtx.fillStyle = sGrad;
+      sCtx.fillRect(0, 0, 64, 64);
+    }
+    const glowTex = new THREE.CanvasTexture(spriteCanvas);
+    glowTex.colorSpace = THREE.SRGBColorSpace;
+    this.glowSpriteTex = glowTex;
+    this.sharedTextures.push(glowTex);
+
     this.sharedLampGeo = new THREE.BoxGeometry(1.45, 0.06, 0.34);
     this.sharedLampMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color('#bae6fd').multiplyScalar(1.55),
+      color: new THREE.Color('#bae6fd').multiplyScalar(this.usePostProcessing ? 1.55 : 1.85),
       toneMapped: true,
     });
 
-    this.sharedHaloGeo = new THREE.PlaneGeometry(2.35, 1.15);
+    this.sharedHaloGeo = new THREE.PlaneGeometry(2.5, 1.25);
     this.sharedHaloMat = new THREE.MeshBasicMaterial({
       map: haloTex,
       color: '#bae6fd',
       transparent: true,
-      opacity: 0.24,
+      opacity: this.usePostProcessing ? 0.24 : 0.44,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.FrontSide,
@@ -349,10 +376,10 @@ export class SchoolEngine {
   }
 
   private setupPostProcessing(width: number, height: number) {
-    if (this.isSoftwareGl) return;
+    if (this.isSoftwareGl || !this.usePostProcessing) return;
 
     const pixelRatio = this.getOptimalPixelRatio();
-    // Desactiva multisampling (samples: 0) para reducir drásticamente el bandwidth/fill-rate en GPU móvil
+    // Desactiva multisampling (samples: 0) para reducir drásticamente el bandwidth/fill-rate en GPU
     const composerTarget = new THREE.WebGLRenderTarget(
       Math.max(1, Math.floor(width * pixelRatio)),
       Math.max(1, Math.floor(height * pixelRatio)),
@@ -369,7 +396,7 @@ export class SchoolEngine {
     const renderPass = new RenderPass(this.scene, this.camera);
     composer.addPass(renderPass);
 
-    // Bloom a resolución reducida (0.5x desktop / 0.35x móvil) y threshold 0.89 para puntos emisivos reales
+    // Bloom a resolución reducida (0.5x) y threshold 0.89 para puntos emisivos reales
     const bloomW = Math.max(1, Math.floor(width * this.bloomResScale));
     const bloomH = Math.max(1, Math.floor(height * this.bloomResScale));
     const bloomPass = new UnrealBloomPass(
@@ -387,53 +414,81 @@ export class SchoolEngine {
     this.bloomPass = bloomPass;
   }
 
+  private downgradePostProcessing() {
+    if (!this.usePostProcessing) return;
+    this.usePostProcessing = false;
+    this.slowFrameCount = 0;
+
+    if (this.bloomPass) {
+      this.bloomPass.dispose();
+      this.bloomPass = null;
+    }
+    if (this.composer) {
+      this.composer.dispose();
+      this.composer = null;
+    }
+    if (this.sharedLampMat) {
+      this.sharedLampMat.color.set('#bae6fd').multiplyScalar(1.85);
+    }
+    if (this.sharedHaloMat) {
+      this.sharedHaloMat.opacity = 0.44;
+    }
+    this.markersById.forEach((vis) => {
+      if (vis.glowSprite) {
+        vis.glowSprite.visible = true;
+      }
+    });
+  }
+
   private setupLighting() {
     // Penumbra fría superior vs rebote oscuro de madera inferior
-    const hemiLight = new THREE.HemisphereLight('#8ea6b4', '#261e16', 0.56);
+    const hemiLight = new THREE.HemisphereLight('#8ea6b4', '#261e16', 0.62);
     this.scene.add(hemiLight);
 
-    // Única luz direccional principal entrando en diagonal por los ventanales del patio (1024x1024 máx)
-    const sunLight = new THREE.DirectionalLight('#ffebd2', 2.05);
+    // Única luz direccional principal (512x512 en escritorio; sombras desactivadas en móvil)
+    const sunLight = new THREE.DirectionalLight('#ffebd2', 1.95);
     sunLight.position.set(
       this.playerPos.x + this.sunOffset.x,
       this.sunOffset.y,
       this.playerPos.z + this.sunOffset.z
     );
-    if (!this.isSoftwareGl) {
+    if (this.shadowsEnabled()) {
       sunLight.castShadow = true;
-      sunLight.shadow.mapSize.set(1024, 1024);
+      sunLight.shadow.mapSize.set(512, 512);
       sunLight.shadow.camera.near = 1;
-      sunLight.shadow.camera.far = 48;
-      sunLight.shadow.camera.left = -16;
-      sunLight.shadow.camera.right = 16;
-      sunLight.shadow.camera.top = 16;
-      sunLight.shadow.camera.bottom = -16;
+      sunLight.shadow.camera.far = 42;
+      sunLight.shadow.camera.left = -14;
+      sunLight.shadow.camera.right = 14;
+      sunLight.shadow.camera.top = 14;
+      sunLight.shadow.camera.bottom = -14;
       sunLight.shadow.bias = -0.0005;
-      sunLight.shadow.normalBias = 0.02;
+    } else {
+      sunLight.castShadow = false;
     }
     this.scene.add(sunLight);
     this.scene.add(sunLight.target);
     this.sunLight = sunLight;
 
-    // Solo 2 PointLights ligeros (castShadow = false) por piso para mantener shader PBR fijo y rápido
-    const corridorLight1F = new THREE.PointLight('#b8d0de', 1.05, 16, 1.5);
+    // Máximo 1 PointLight activo en todo momento (1 Hemisphere + 1 Directional + 1 Point = 3 luces máx)
+    const corridorLight1F = new THREE.PointLight('#b8d0de', 1.15, 16, 1.5);
     corridorLight1F.castShadow = false;
     corridorLight1F.position.set(-1.5, 2.95, 2.0);
     this.floor1Group.add(corridorLight1F);
 
-    const wingLight1F = new THREE.PointLight('#d9b98b', 1.15, 17, 1.5);
+    const wingLight1F = new THREE.PointLight('#d9b98b', 1.25, 17, 1.5);
     wingLight1F.castShadow = false;
     wingLight1F.position.set(-26.0, 2.9, -21.5);
+    wingLight1F.visible = false;
     this.floor1Group.add(wingLight1F);
     this.floor1Lights = [corridorLight1F, wingLight1F];
 
-    const corridorLight2F = new THREE.PointLight('#b8d0de', 1.05, 16, 1.5);
+    const corridorLight2F = new THREE.PointLight('#b8d0de', 1.15, 16, 1.5);
     corridorLight2F.castShadow = false;
     corridorLight2F.position.set(0, 2.95, 0);
     corridorLight2F.visible = false;
     this.floor2Group.add(corridorLight2F);
 
-    const wingLight2F = new THREE.PointLight('#94b8c8', 1.15, 15, 1.5);
+    const wingLight2F = new THREE.PointLight('#94b8c8', 1.2, 15, 1.5);
     wingLight2F.castShadow = false;
     wingLight2F.position.set(26.2, 2.95, -20.5);
     wingLight2F.visible = false;
@@ -442,8 +497,7 @@ export class SchoolEngine {
   }
 
   private updateSunShadowTracking() {
-    if (!this.sunLight) return;
-    // Cuantiza a pasos de 0.5m para evitar parpadeo en el shadow map 1024x1024
+    if (!this.sunLight || !this.sunLight.castShadow) return;
     const snapX = Math.round(this.playerPos.x * 2) * 0.5;
     const snapZ = Math.round(this.playerPos.z * 2) * 0.5;
     this.sunLight.target.position.set(snapX, 0, snapZ);
@@ -457,34 +511,16 @@ export class SchoolEngine {
 
   private buildSchoolArchitecture() {
     const maxAniso = this.renderer.capabilities.getMaxAnisotropy();
-    const floorMaps = createWoodFloorPbrMaps(maxAniso);
-
-    const woodTex = floorMaps.map;
+    const woodTex = createWoodPlankTexture(maxAniso);
     woodTex.repeat.set(16, 2);
-    const woodRoughMap = floorMaps.roughnessMap;
-    woodRoughMap.repeat.set(16, 2);
-    const woodBumpMap = floorMaps.bumpMap;
-    woodBumpMap.repeat.set(16, 2);
 
     const wingWoodTex = woodTex.clone();
     wingWoodTex.repeat.set(2, 8);
     wingWoodTex.needsUpdate = true;
-    const wingRoughMap = woodRoughMap.clone();
-    wingRoughMap.repeat.set(2, 8);
-    wingRoughMap.needsUpdate = true;
-    const wingBumpMap = woodBumpMap.clone();
-    wingBumpMap.repeat.set(2, 8);
-    wingBumpMap.needsUpdate = true;
 
     const roomWoodTex = woodTex.clone();
     roomWoodTex.repeat.set(3, 3);
     roomWoodTex.needsUpdate = true;
-    const roomRoughMap = woodRoughMap.clone();
-    roomRoughMap.repeat.set(3, 3);
-    roomRoughMap.needsUpdate = true;
-    const roomBumpMap = woodBumpMap.clone();
-    roomBumpMap.repeat.set(3, 3);
-    roomBumpMap.needsUpdate = true;
 
     const ceilingTex = createCeilingPlankTexture(maxAniso);
     ceilingTex.repeat.set(14, 2);
@@ -507,14 +543,8 @@ export class SchoolEngine {
 
     this.sharedTextures.push(
       woodTex,
-      woodRoughMap,
-      woodBumpMap,
       wingWoodTex,
-      wingRoughMap,
-      wingBumpMap,
       roomWoodTex,
-      roomRoughMap,
-      roomBumpMap,
       ceilingTex,
       stoneTex,
       bathTileTex,
@@ -524,75 +554,16 @@ export class SchoolEngine {
       doorTex
     );
 
-    const woodFloorMat = new THREE.MeshStandardMaterial({
-      map: woodTex,
-      roughnessMap: woodRoughMap,
-      bumpMap: woodBumpMap,
-      bumpScale: 0.018,
-      roughness: 0.95,
-      metalness: 0.05,
-      envMapIntensity: 0.38,
-    });
-    const wingFloorMat = new THREE.MeshStandardMaterial({
-      map: wingWoodTex,
-      roughnessMap: wingRoughMap,
-      bumpMap: wingBumpMap,
-      bumpScale: 0.018,
-      roughness: 0.95,
-      metalness: 0.05,
-      envMapIntensity: 0.38,
-    });
-    const roomFloorMat = new THREE.MeshStandardMaterial({
-      map: roomWoodTex,
-      roughnessMap: roomRoughMap,
-      bumpMap: roomBumpMap,
-      bumpScale: 0.016,
-      roughness: 0.95,
-      metalness: 0.05,
-      envMapIntensity: 0.35,
-    });
-    const stoneFloorMat = new THREE.MeshStandardMaterial({
-      map: stoneTex,
-      roughness: 0.84,
-      metalness: 0.04,
-      envMapIntensity: 0.3,
-    });
-    const bathFloorMat = new THREE.MeshStandardMaterial({
-      map: bathTileTex,
-      roughness: 0.32,
-      metalness: 0.08,
-      envMapIntensity: 0.42,
-    });
-    const wallLongMat = new THREE.MeshStandardMaterial({
-      map: wallTex,
-      roughness: 0.88,
-      metalness: 0.02,
-      envMapIntensity: 0.3,
-    });
-    const wallShortMat = new THREE.MeshStandardMaterial({
-      map: shortWallTex,
-      roughness: 0.88,
-      metalness: 0.02,
-      envMapIntensity: 0.3,
-    });
-    const ceilingMat = new THREE.MeshStandardMaterial({
-      map: ceilingTex,
-      roughness: 0.74,
-      metalness: 0.04,
-      envMapIntensity: 0.25,
-    });
-    const cedarTimberMat = new THREE.MeshStandardMaterial({
-      color: '#2b2b22',
-      roughness: 0.65,
-      metalness: 0.04,
-      envMapIntensity: 0.35,
-    });
-    const slidingDoorMat = new THREE.MeshStandardMaterial({
-      map: doorTex,
-      roughness: 0.64,
-      metalness: 0.04,
-      envMapIntensity: 0.35,
-    });
+    const woodFloorMat = new THREE.MeshLambertMaterial({ map: woodTex });
+    const wingFloorMat = new THREE.MeshLambertMaterial({ map: wingWoodTex });
+    const roomFloorMat = new THREE.MeshLambertMaterial({ map: roomWoodTex });
+    const stoneFloorMat = new THREE.MeshLambertMaterial({ map: stoneTex });
+    const bathFloorMat = new THREE.MeshLambertMaterial({ map: bathTileTex });
+    const wallLongMat = new THREE.MeshLambertMaterial({ map: wallTex });
+    const wallShortMat = new THREE.MeshLambertMaterial({ map: shortWallTex });
+    const ceilingMat = new THREE.MeshLambertMaterial({ map: ceilingTex });
+    const cedarTimberMat = new THREE.MeshLambertMaterial({ color: '#2b2b22' });
+    const slidingDoorMat = new THREE.MeshLambertMaterial({ map: doorTex });
 
     this.scene.add(this.floor1Group);
     this.scene.add(this.floor2Group);
@@ -600,23 +571,9 @@ export class SchoolEngine {
     const stairTreadTex = woodTex.clone();
     stairTreadTex.repeat.set(1.2, 0.35);
     stairTreadTex.needsUpdate = true;
-    const stairRoughMap = woodRoughMap.clone();
-    stairRoughMap.repeat.set(1.2, 0.35);
-    stairRoughMap.needsUpdate = true;
-    const stairBumpMap = woodBumpMap.clone();
-    stairBumpMap.repeat.set(1.2, 0.35);
-    stairBumpMap.needsUpdate = true;
 
-    const stairTreadMat = new THREE.MeshStandardMaterial({
-      map: stairTreadTex,
-      roughnessMap: stairRoughMap,
-      bumpMap: stairBumpMap,
-      bumpScale: 0.016,
-      roughness: 0.92,
-      metalness: 0.04,
-      envMapIntensity: 0.34,
-    });
-    this.sharedTextures.push(stairTreadTex, stairRoughMap, stairBumpMap);
+    const stairTreadMat = new THREE.MeshLambertMaterial({ map: stairTreadTex });
+    this.sharedTextures.push(stairTreadTex);
 
     // Build shared U-shape structure for Floor 1 and Floor 2
     this.populateFloorBase(this.floor1Group, 1, {
@@ -656,31 +613,6 @@ export class SchoolEngine {
     this.buildFloor2Props(maxAniso, cedarTimberMat);
   }
 
-  /**
-   * Ajusta envMapIntensity sobre los materiales arquitectónicos antes de instanciar marcadores .glb,
-   * garantizando que los marcadores interactivos conserven intactos sus materiales originales.
-   */
-  private applyArchitecturalPbrPass() {
-    const applyOnFloor = (group: THREE.Group) => {
-      group.traverse((obj) => {
-        if (obj.userData?.isInteractiveMarker) return;
-        if (!(obj as THREE.Mesh).isMesh) return;
-        const mesh = obj as THREE.Mesh;
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        mats.forEach((mat) => {
-          if (mat && (mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
-            const std = mat as THREE.MeshStandardMaterial;
-            std.envMapIntensity = Math.min(std.envMapIntensity ?? 0.35, 0.42);
-            std.needsUpdate = true;
-          }
-        });
-      });
-    };
-
-    applyOnFloor(this.floor1Group);
-    applyOnFloor(this.floor2Group);
-  }
-
   private addBoxWall(
     parent: THREE.Group,
     x: number,
@@ -693,7 +625,7 @@ export class SchoolEngine {
   ) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
     mesh.position.set(x, y, z);
-    mesh.receiveShadow = !this.isSoftwareGl;
+    mesh.receiveShadow = this.shadowsEnabled();
     mesh.userData.colliderKind = 'wall';
     parent.add(mesh);
     return mesh;
@@ -720,11 +652,13 @@ export class SchoolEngine {
   ) {
     const wallH = 3.5;
 
+    const shadowsOn = this.shadowsEnabled();
+
     // 1. Main East-West Corridor Floor & Ceiling (x: -28.4..28.4, z: -2.4..2.4)
     const mainFloor = new THREE.Mesh(new THREE.PlaneGeometry(56.8, 4.8), mats.woodFloorMat);
     mainFloor.rotation.x = -Math.PI / 2;
     mainFloor.position.set(0, 0, 0);
-    mainFloor.receiveShadow = !this.isSoftwareGl;
+    mainFloor.receiveShadow = shadowsOn;
     group.add(mainFloor);
 
     const mainCeiling = new THREE.Mesh(new THREE.PlaneGeometry(56.8, 4.8), mats.ceilingMat);
@@ -743,13 +677,13 @@ export class SchoolEngine {
       if (floor === 1 && Math.abs(px) < 5.5) continue;
       const pNorth = new THREE.Mesh(pillarGeo, mats.cedarTimberMat);
       pNorth.position.set(px, wallH / 2, -2.3);
-      pNorth.castShadow = !this.isSoftwareGl;
+      pNorth.castShadow = shadowsOn;
       pNorth.userData.colliderKind = 'pillar';
       group.add(pNorth);
 
       const pSouth = new THREE.Mesh(pillarGeo, mats.cedarTimberMat);
       pSouth.position.set(px, wallH / 2, 2.3);
-      pSouth.castShadow = !this.isSoftwareGl;
+      pSouth.castShadow = shadowsOn;
       pSouth.userData.colliderKind = 'pillar';
       group.add(pSouth);
     }
@@ -763,7 +697,7 @@ export class SchoolEngine {
       const vestFloor = new THREE.Mesh(new THREE.PlaneGeometry(11.2, 4.4), mats.roomFloorMat);
       vestFloor.rotation.x = -Math.PI / 2;
       vestFloor.position.set(0, 0.005, -2.1);
-      vestFloor.receiveShadow = !this.isSoftwareGl;
+      vestFloor.receiveShadow = shadowsOn;
       group.add(vestFloor);
 
       const vestCeil = new THREE.Mesh(new THREE.PlaneGeometry(11.2, 12.2), mats.ceilingMat);
@@ -779,7 +713,7 @@ export class SchoolEngine {
       const genkanFloor = new THREE.Mesh(new THREE.PlaneGeometry(11.2, 5.2), mats.stoneFloorMat);
       genkanFloor.rotation.x = -Math.PI / 2;
       genkanFloor.position.set(0, 0.008, 5.0);
-      genkanFloor.receiveShadow = !this.isSoftwareGl;
+      genkanFloor.receiveShadow = shadowsOn;
       group.add(genkanFloor);
 
       // Genkan Side & South Entrance Walls
@@ -788,17 +722,8 @@ export class SchoolEngine {
       this.addGlassEntranceWall(group, 0, 7.6, 11.2, wallH, mats.cedarTimberMat);
 
       // 3 Traditional Getabako Shoe-Locker Islands creating the 4 aisles on Map 1
-      const lockerMat = new THREE.MeshStandardMaterial({
-        map: mats.lockerTex,
-        roughness: 0.65,
-        metalness: 0.05,
-        envMapIntensity: 0.34,
-      });
-      const lockerTopMat = new THREE.MeshStandardMaterial({
-        color: '#2b241b',
-        roughness: 0.58,
-        envMapIntensity: 0.35,
-      });
+      const lockerMat = new THREE.MeshLambertMaterial({ map: mats.lockerTex });
+      const lockerTopMat = new THREE.MeshLambertMaterial({ color: '#2b241b' });
       const bodyW = 1.1;
       const bodyH = 1.75;
       const bodyD = 3.4;
@@ -808,8 +733,8 @@ export class SchoolEngine {
         island.position.set(lx, 0, 5.0);
         const body = new THREE.Mesh(new THREE.BoxGeometry(bodyW, bodyH, bodyD), lockerMat);
         body.position.y = bodyH / 2;
-        body.castShadow = !this.isSoftwareGl;
-        body.receiveShadow = !this.isSoftwareGl;
+        body.castShadow = shadowsOn;
+        body.receiveShadow = shadowsOn;
         body.userData.colliderKind = 'furniture';
         island.add(body);
 
@@ -887,7 +812,7 @@ export class SchoolEngine {
     const westWingFloor = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 20.6), mats.wingFloorMat);
     westWingFloor.rotation.x = -Math.PI / 2;
     westWingFloor.position.set(-26.0, 0.002, -8.1);
-    westWingFloor.receiveShadow = !this.isSoftwareGl;
+    westWingFloor.receiveShadow = shadowsOn;
     group.add(westWingFloor);
 
     const westWingCeil = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 20.6), mats.ceilingMat);
@@ -915,7 +840,7 @@ export class SchoolEngine {
     const westRoomFloor = new THREE.Mesh(new THREE.PlaneGeometry(7.0, 6.8), mats.roomFloorMat);
     westRoomFloor.rotation.x = -Math.PI / 2;
     westRoomFloor.position.set(-26.0, 0.004, -21.4);
-    westRoomFloor.receiveShadow = !this.isSoftwareGl;
+    westRoomFloor.receiveShadow = shadowsOn;
     group.add(westRoomFloor);
 
     const westRoomCeil = new THREE.Mesh(new THREE.PlaneGeometry(7.0, 6.8), mats.ceilingMat);
@@ -933,7 +858,7 @@ export class SchoolEngine {
     const eastWingFloor = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 17.6), mats.wingFloorMat);
     eastWingFloor.rotation.x = -Math.PI / 2;
     eastWingFloor.position.set(26.0, 0.002, -6.6);
-    eastWingFloor.receiveShadow = !this.isSoftwareGl;
+    eastWingFloor.receiveShadow = shadowsOn;
     group.add(eastWingFloor);
 
     const eastWingCeil = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 17.6), mats.ceilingMat);
@@ -966,7 +891,7 @@ export class SchoolEngine {
       const bathFloor = new THREE.Mesh(new THREE.PlaneGeometry(8.0, 9.0), mats.bathFloorMat);
       bathFloor.rotation.x = -Math.PI / 2;
       bathFloor.position.set(26.0, 0.004, -19.5);
-      bathFloor.receiveShadow = !this.isSoftwareGl;
+      bathFloor.receiveShadow = shadowsOn;
       group.add(bathFloor);
 
       const bathCeil = new THREE.Mesh(new THREE.PlaneGeometry(8.0, 9.0), mats.ceilingMat);
@@ -996,6 +921,7 @@ export class SchoolEngine {
     const winTopY = 2.62;
     const lintelH = wallH - winTopY;
 
+    const shadowsOn = this.shadowsEnabled();
     const sortedCenters = [...windowCentersX].sort((a, b) => a - b);
     let cursorX = startX;
 
@@ -1006,13 +932,13 @@ export class SchoolEngine {
       if (bayMin > cursorX + 0.02) {
         const pierW = bayMin - cursorX;
         const pier = this.addBoxWall(group, cursorX + pierW / 2, wallH / 2, z, pierW, wallH, 0.25, mat);
-        pier.castShadow = !this.isSoftwareGl;
+        pier.castShadow = shadowsOn;
       }
 
       if (bayMax > bayMin + 0.05) {
         const bayW = bayMax - bayMin;
         const sill = this.addBoxWall(group, bayMin + bayW / 2, sillH / 2, z, bayW, sillH, 0.25, mat);
-        sill.castShadow = !this.isSoftwareGl;
+        sill.castShadow = shadowsOn;
 
         const lintel = this.addBoxWall(
           group,
@@ -1024,7 +950,7 @@ export class SchoolEngine {
           0.25,
           mat
         );
-        lintel.castShadow = !this.isSoftwareGl;
+        lintel.castShadow = shadowsOn;
       }
 
       cursorX = Math.max(cursorX, bayMax);
@@ -1042,7 +968,7 @@ export class SchoolEngine {
         0.25,
         mat
       );
-      endPier.castShadow = !this.isSoftwareGl;
+      endPier.castShadow = shadowsOn;
     }
   }
 
@@ -1057,16 +983,13 @@ export class SchoolEngine {
     const entrance = new THREE.Group();
     entrance.position.set(x, 0, z);
 
-    const glassMat = new THREE.MeshStandardMaterial({
+    const glassMat = new THREE.MeshLambertMaterial({
       color: '#9fb8b4',
       emissive: '#38bdf8',
-      emissiveIntensity: 0.12,
-      roughness: 0.18,
-      metalness: 0.08,
+      emissiveIntensity: 0.14,
       transparent: true,
       opacity: 0.48,
       depthWrite: false,
-      envMapIntensity: 0.4,
     });
 
     const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(width, height), glassMat);
@@ -1100,22 +1023,23 @@ export class SchoolEngine {
     const winW = 3.74;
     const winH = 1.44;
     const barDepth = 0.14;
+    const shadowsOn = this.shadowsEnabled();
 
     // Marco perimetral abierto (sin placa sólida trasera) para dejar pasar los haces de luz direccional
     const topBar = new THREE.Mesh(new THREE.BoxGeometry(winW, 0.08, barDepth), frameMat);
     topBar.position.y = winH / 2 - 0.04;
-    topBar.castShadow = !this.isSoftwareGl;
+    topBar.castShadow = shadowsOn;
     winGroup.add(topBar);
 
     const bottomBar = new THREE.Mesh(new THREE.BoxGeometry(winW, 0.08, barDepth), frameMat);
     bottomBar.position.y = -winH / 2 + 0.04;
-    bottomBar.castShadow = !this.isSoftwareGl;
+    bottomBar.castShadow = shadowsOn;
     winGroup.add(bottomBar);
 
     [-winW / 2 + 0.04, winW / 2 - 0.04].forEach((bx) => {
       const sideBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, winH, barDepth), frameMat);
       sideBar.position.x = bx;
-      sideBar.castShadow = !this.isSoftwareGl;
+      sideBar.castShadow = shadowsOn;
       winGroup.add(sideBar);
     });
 
@@ -1123,27 +1047,24 @@ export class SchoolEngine {
     [-0.62, 0.62].forEach((mx) => {
       const mullion = new THREE.Mesh(new THREE.BoxGeometry(0.06, winH - 0.08, barDepth * 0.85), frameMat);
       mullion.position.x = mx;
-      mullion.castShadow = !this.isSoftwareGl;
+      mullion.castShadow = shadowsOn;
       winGroup.add(mullion);
     });
 
     const transom = new THREE.Mesh(new THREE.BoxGeometry(winW - 0.1, 0.055, barDepth * 0.8), frameMat);
     transom.position.y = 0.22;
-    transom.castShadow = !this.isSoftwareGl;
+    transom.castShadow = shadowsOn;
     winGroup.add(transom);
 
     // Vidrio translúcido envejecido con leve tinte cielo/crepúsculo frío
-    const skyMat = new THREE.MeshStandardMaterial({
+    const skyMat = new THREE.MeshLambertMaterial({
       color: '#9fb8b4',
       emissive: '#475569',
-      emissiveIntensity: 0.22,
-      roughness: 0.18,
-      metalness: 0.06,
+      emissiveIntensity: 0.24,
       transparent: true,
       opacity: 0.42,
       depthWrite: false,
       side: THREE.DoubleSide,
-      envMapIntensity: 0.4,
     });
 
     for (let i = -1; i <= 1; i++) {
@@ -1171,17 +1092,14 @@ export class SchoolEngine {
     const board = new THREE.Group();
 
     const plank = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), frameMat);
-    plank.castShadow = !this.isSoftwareGl;
+    plank.castShadow = this.shadowsEnabled();
     board.add(plank);
 
     const signTex = createWoodenSignTexture(title, maxAniso);
     this.sharedTextures.push(signTex);
 
-    const faceMat = new THREE.MeshStandardMaterial({
+    const faceMat = new THREE.MeshLambertMaterial({
       map: signTex,
-      roughness: 0.75,
-      metalness: 0.03,
-      envMapIntensity: 0.32,
       side: THREE.FrontSide,
     });
 
@@ -1228,11 +1146,10 @@ export class SchoolEngine {
 
       const interiorGlow = new THREE.Mesh(
         new THREE.PlaneGeometry(1.56, 2.38),
-        new THREE.MeshStandardMaterial({
+        new THREE.MeshLambertMaterial({
           color: '#fef3c7',
           emissive: '#f59e0b',
-          emissiveIntensity: 0.55,
-          roughness: 0.35,
+          emissiveIntensity: this.usePostProcessing ? 0.55 : 0.85,
         })
       );
       interiorGlow.position.set(0, 1.225, 0.022);
@@ -1365,18 +1282,12 @@ export class SchoolEngine {
     const pocket = new THREE.Group();
     pocket.position.set(centerX, 0, 0);
 
+    const shadowsOn = this.shadowsEnabled();
+
     // Materiales coherentes en madera oscura envejecida (sin caras coplanares ni Z-fighting)
-    const riserMat = new THREE.MeshStandardMaterial({
-      color: '#241f18',
-      roughness: 0.78,
-      metalness: 0.03,
-      envMapIntensity: 0.28,
-    });
-    const nosingMat = new THREE.MeshStandardMaterial({
+    const riserMat = new THREE.MeshLambertMaterial({ color: '#241f18' });
+    const nosingMat = new THREE.MeshLambertMaterial({
       color: '#342b21',
-      roughness: 0.62,
-      metalness: 0.05,
-      envMapIntensity: 0.34,
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
@@ -1394,7 +1305,7 @@ export class SchoolEngine {
       const entryLanding = new THREE.Mesh(new THREE.PlaneGeometry(3.16, 1.55), mats.roomFloorMat);
       entryLanding.rotation.x = -Math.PI / 2;
       entryLanding.position.set(0, 0.002, 3.175);
-      entryLanding.receiveShadow = !this.isSoftwareGl;
+      entryLanding.receiveShadow = shadowsOn;
       pocket.add(entryLanding);
 
       // Cielo raso alto del cubo de escaleras (techo del 2° piso sobre toda la caja)
@@ -1491,7 +1402,7 @@ export class SchoolEngine {
             riserBottomY + riserHeight * 0.5,
             zStepFront + riserThick * 0.5
           );
-          riser.receiveShadow = !this.isSoftwareGl;
+          riser.receiveShadow = shadowsOn;
           pocket.add(riser);
 
           // 2. Huella horizontal con vuelo frontal de 2.4cm y entrega limpia hacia la siguiente contrahuella
@@ -1507,8 +1418,8 @@ export class SchoolEngine {
             yTop - treadThick * 0.5,
             treadFrontZ + treadDepth * 0.5
           );
-          tread.receiveShadow = !this.isSoftwareGl;
-          tread.castShadow = !this.isSoftwareGl;
+          tread.receiveShadow = shadowsOn;
+          tread.castShadow = shadowsOn;
           pocket.add(tread);
 
           // 3. Cantonera antideslizante elevada 6mm sobre la huella y 5mm delante del borde (cero Z-fighting)
@@ -1537,7 +1448,7 @@ export class SchoolEngine {
           );
           stringer.position.set(rx * 1.03, baseY + flightRise * 0.5 - 0.11, baseZ + flightRun * 0.5);
           stringer.rotation.x = -slopeAngle;
-          stringer.castShadow = !this.isSoftwareGl;
+          stringer.castShadow = shadowsOn;
           pocket.add(stringer);
 
           const postBottom = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.02, 0.1), mats.cedarTimberMat);
@@ -1578,7 +1489,7 @@ export class SchoolEngine {
         mats.stairTreadMat
       );
       midLandingDeck.position.set(0, flightRise - 0.08, midLandingCenterZ);
-      midLandingDeck.receiveShadow = !this.isSoftwareGl;
+      midLandingDeck.receiveShadow = shadowsOn;
       pocket.add(midLandingDeck);
 
       const underMidHeight = flightRise - 0.17;
@@ -1641,7 +1552,7 @@ export class SchoolEngine {
       );
       topLandingFloor.rotation.x = -Math.PI / 2;
       topLandingFloor.position.set(0, upperFloorY + 0.002, topLandingCenterZ);
-      topLandingFloor.receiveShadow = !this.isSoftwareGl;
+      topLandingFloor.receiveShadow = shadowsOn;
       pocket.add(topLandingFloor);
 
       const outerSideX = -openSide * railX;
@@ -1684,7 +1595,7 @@ export class SchoolEngine {
       );
       galleryFloor.rotation.x = -Math.PI / 2;
       galleryFloor.position.set(galleryCenterX, upperFloorY + 0.002, topLandingCenterZ);
-      galleryFloor.receiveShadow = !this.isSoftwareGl;
+      galleryFloor.receiveShadow = shadowsOn;
       pocket.add(galleryFloor);
 
       const galleryCeil = new THREE.Mesh(
@@ -1762,12 +1673,10 @@ export class SchoolEngine {
       const stairWinW = 1.76;
       const stairWinH = 2.09;
       const stairWinY = 5.6;
-      const winGlassMat = new THREE.MeshStandardMaterial({
+      const winGlassMat = new THREE.MeshLambertMaterial({
         color: '#8faab0',
         emissive: '#3e5c69',
-        emissiveIntensity: 0.34,
-        roughness: 0.2,
-        metalness: 0.05,
+        emissiveIntensity: 0.36,
         transparent: true,
         opacity: 0.72,
       });
@@ -1791,7 +1700,7 @@ export class SchoolEngine {
       const landing = new THREE.Mesh(new THREE.PlaneGeometry(3.16, 1.55), mats.roomFloorMat);
       landing.rotation.x = -Math.PI / 2;
       landing.position.set(0, 0.002, 3.175);
-      landing.receiveShadow = !this.isSoftwareGl;
+      landing.receiveShadow = shadowsOn;
       pocket.add(landing);
 
       const ceil = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 5.6), mats.ceilingMat);
@@ -1814,12 +1723,7 @@ export class SchoolEngine {
       const slopeAngle = Math.atan2(totalRise, totalRun);
 
       // Cierre inferior del hueco de escalera (y = -2.60 .. -0.004) separado de muros superiores
-      const shaftLowerWallMat = new THREE.MeshStandardMaterial({
-        color: '#4e5850',
-        roughness: 0.9,
-        metalness: 0.02,
-        envMapIntensity: 0.22,
-      });
+      const shaftLowerWallMat = new THREE.MeshLambertMaterial({ color: '#4e5850' });
 
       const shaftLeft = new THREE.Mesh(new THREE.BoxGeometry(0.24, 2.59, 5.5), shaftLowerWallMat);
       shaftLeft.position.set(-1.7, -1.3, 5.05);
@@ -1842,7 +1746,7 @@ export class SchoolEngine {
       const lowerLanding = new THREE.Mesh(new THREE.PlaneGeometry(3.16, 0.92), mats.roomFloorMat);
       lowerLanding.rotation.x = -Math.PI / 2;
       lowerLanding.position.set(0, -totalRise + 0.002, zStart + totalRun + 0.464);
-      lowerLanding.receiveShadow = !this.isSoftwareGl;
+      lowerLanding.receiveShadow = shadowsOn;
       pocket.add(lowerLanding);
 
       const treadThick = 0.042;
@@ -1871,7 +1775,7 @@ export class SchoolEngine {
           yTop + riserHeight * 0.5 - 0.004,
           zStepFront - riserThick * 0.5
         );
-        riser.receiveShadow = !this.isSoftwareGl;
+        riser.receiveShadow = shadowsOn;
         pocket.add(riser);
 
         // 2. Huella horizontal con vuelo hacia +Z y entrega limpia bajo la contrahuella anterior
@@ -1887,8 +1791,8 @@ export class SchoolEngine {
           yTop - treadThick * 0.5,
           treadBackZ + treadDepth * 0.5
         );
-        tread.receiveShadow = !this.isSoftwareGl;
-        tread.castShadow = !this.isSoftwareGl;
+        tread.receiveShadow = shadowsOn;
+        tread.castShadow = shadowsOn;
         pocket.add(tread);
 
         // 3. Cantonera antideslizante en el borde de bajada (+Z), elevada para cero Z-fighting
@@ -1943,6 +1847,8 @@ export class SchoolEngine {
   }
 
   private buildFloor1Props(maxAniso: number, timberMat: THREE.Material) {
+    const shadowsOn = this.shadowsEnabled();
+
     // 1. Vestibule Notice Board (near objeto_vestibulo at (2.2, 0, -1.6))
     const boardGroup = new THREE.Group();
     boardGroup.position.set(2.2, 0, -3.95);
@@ -1951,13 +1857,13 @@ export class SchoolEngine {
     frame.userData.colliderKind = 'furniture';
     boardGroup.add(frame);
 
-    const corkMat = new THREE.MeshStandardMaterial({ color: '#9c6f44', roughness: 0.9 });
+    const corkMat = new THREE.MeshLambertMaterial({ color: '#9c6f44' });
     const cork = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 1.15), corkMat);
     cork.position.set(0, 1.65, 0.06);
     cork.userData.noCollision = true;
     boardGroup.add(cork);
 
-    const paperMat = new THREE.MeshStandardMaterial({ color: '#faf6ee', roughness: 0.8 });
+    const paperMat = new THREE.MeshLambertMaterial({ color: '#faf6ee' });
     [-0.6, 0, 0.62].forEach((px, idx) => {
       const sheet = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.62), paperMat);
       sheet.position.set(px, 1.68 + (idx % 2) * 0.05, 0.07);
@@ -1971,8 +1877,8 @@ export class SchoolEngine {
     const closetGroup = new THREE.Group();
     closetGroup.position.set(-24.5, 0, -23.95);
 
-    const cabinetMat = new THREE.MeshStandardMaterial({ color: '#583922', roughness: 0.62, metalness: 0.08 });
-    const brassMat = new THREE.MeshStandardMaterial({ color: '#d97706', roughness: 0.25, metalness: 0.85 });
+    const cabinetMat = new THREE.MeshLambertMaterial({ color: '#583922' });
+    const brassMat = new THREE.MeshLambertMaterial({ color: '#d97706' });
 
     const carcass = new THREE.Mesh(new THREE.BoxGeometry(1.75, 2.35, 0.78), cabinetMat);
     carcass.position.y = 1.175;
@@ -1998,7 +1904,7 @@ export class SchoolEngine {
     closetGroup.add(this.closetDoorPivot);
 
     // Mop bucket & broom beside closet
-    const bucketMat = new THREE.MeshStandardMaterial({ color: '#2563eb', roughness: 0.35, metalness: 0.15 });
+    const bucketMat = new THREE.MeshLambertMaterial({ color: '#2563eb' });
     const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.19, 0.38, 16), bucketMat);
     bucket.position.set(-1.25, 0.19, 0.2);
     bucket.userData.colliderKind = 'furniture';
@@ -2013,34 +1919,24 @@ export class SchoolEngine {
     this.floor1Group.add(closetGroup);
 
     // 3. Aparcabicicletas y Patio Exterior (1F East Courtyard: x: 21.8..30.5, z: -25.2..-15.1)
-    // Concreto/asfalto frío húmedo PBR extendido + muros japoneses de bloques de concreto con reja metálica y setos oscuros
-    const outdoorMaps = createOutdoorConcretePbrMaps(maxAniso);
-    [outdoorMaps.map, outdoorMaps.roughnessMap, outdoorMaps.bumpMap].forEach((tex) => {
-      tex.repeat.set(7.5, 6);
-      this.sharedTextures.push(tex);
-    });
-    const outdoorConcreteMat = new THREE.MeshStandardMaterial({
-      map: outdoorMaps.map,
-      roughnessMap: outdoorMaps.roughnessMap,
-      bumpMap: outdoorMaps.bumpMap,
-      bumpScale: 0.02,
-      roughness: 0.95,
-      metalness: 0.04,
-      envMapIntensity: 0.36,
-    });
+    // Concreto/asfalto frío húmedo ligero (MeshLambertMaterial) + muros de concreto y setos oscuros
+    const outdoorTex = createOutdoorConcreteTexture(maxAniso);
+    outdoorTex.repeat.set(7.5, 6);
+    this.sharedTextures.push(outdoorTex);
+    const outdoorConcreteMat = new THREE.MeshLambertMaterial({ map: outdoorTex });
 
     const courtyardGround = new THREE.Mesh(new THREE.PlaneGeometry(32, 24), outdoorConcreteMat);
     courtyardGround.rotation.x = -Math.PI / 2;
     // Borde sur exacto en z = -15.1 (umbral de salida del pasillo este) para no pisar la madera interior ni viceversa
     courtyardGround.position.set(29.0, 0.005, -27.1);
-    courtyardGround.receiveShadow = !this.isSoftwareGl;
+    courtyardGround.receiveShadow = shadowsOn;
     this.floor1Group.add(courtyardGround);
 
     // Patio Central exterior (x: -23.7..23.7, z: -36..-2.5) visible desde ventanales 1F y 2F (cero madera exterior)
     const centralCourtyardGround = new THREE.Mesh(new THREE.PlaneGeometry(47.4, 33.5), outdoorConcreteMat);
     centralCourtyardGround.rotation.x = -Math.PI / 2;
     centralCourtyardGround.position.set(0, -0.01, -19.25);
-    centralCourtyardGround.receiveShadow = !this.isSoftwareGl;
+    centralCourtyardGround.receiveShadow = shadowsOn;
     this.floor1Group.add(centralCourtyardGround);
 
     const centralCourtyardGround2F = new THREE.Mesh(new THREE.PlaneGeometry(54, 34), outdoorConcreteMat);
@@ -2059,36 +1955,11 @@ export class SchoolEngine {
     blockWallTexCentral.needsUpdate = true;
     this.sharedTextures.push(blockWallTex, blockWallTexSide, blockWallTexCentral);
 
-    const concreteWallMat = new THREE.MeshStandardMaterial({
-      map: blockWallTex,
-      roughness: 0.9,
-      metalness: 0.03,
-      envMapIntensity: 0.28,
-    });
-    const concreteWallSideMat = new THREE.MeshStandardMaterial({
-      map: blockWallTexSide,
-      roughness: 0.9,
-      metalness: 0.03,
-      envMapIntensity: 0.28,
-    });
-    const concreteWallCentralMat = new THREE.MeshStandardMaterial({
-      map: blockWallTexCentral,
-      roughness: 0.9,
-      metalness: 0.03,
-      envMapIntensity: 0.26,
-    });
-    const copingMat = new THREE.MeshStandardMaterial({
-      color: '#2d3233',
-      roughness: 0.88,
-      metalness: 0.04,
-      envMapIntensity: 0.28,
-    });
-    const ironFenceMat = new THREE.MeshStandardMaterial({
-      color: '#1b2024',
-      roughness: 0.52,
-      metalness: 0.72,
-      envMapIntensity: 0.35,
-    });
+    const concreteWallMat = new THREE.MeshLambertMaterial({ map: blockWallTex });
+    const concreteWallSideMat = new THREE.MeshLambertMaterial({ map: blockWallTexSide });
+    const concreteWallCentralMat = new THREE.MeshLambertMaterial({ map: blockWallTexCentral });
+    const copingMat = new THREE.MeshLambertMaterial({ color: '#2d3233' });
+    const ironFenceMat = new THREE.MeshLambertMaterial({ color: '#1b2024' });
 
     const addSchoolPerimeterSpan = (
       targetGroup: THREE.Group,
@@ -2109,14 +1980,14 @@ export class SchoolEngine {
       // Muro inferior de bloques de concreto (1.62m) + cornisa superior
       const baseWall = new THREE.Mesh(new THREE.BoxGeometry(0.26, 1.62, spanLen), wallMat);
       baseWall.position.y = 0.81;
-      baseWall.castShadow = !this.isSoftwareGl;
-      baseWall.receiveShadow = !this.isSoftwareGl;
+      baseWall.castShadow = shadowsOn;
+      baseWall.receiveShadow = shadowsOn;
       baseWall.userData.colliderKind = 'wall';
       span.add(baseWall);
 
       const coping = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.1, spanLen + 0.06), copingMat);
       coping.position.y = 1.67;
-      coping.castShadow = !this.isSoftwareGl;
+      coping.castShadow = shadowsOn;
       coping.userData.noCollision = true;
       span.add(coping);
 
@@ -2126,7 +1997,7 @@ export class SchoolEngine {
         const pz = -spanLen * 0.5 + (i / (pillarCount - 1)) * spanLen;
         const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.78, 0.36), copingMat);
         pillar.position.set(0, 0.89, pz);
-        pillar.castShadow = !this.isSoftwareGl;
+        pillar.castShadow = shadowsOn;
         pillar.userData.colliderKind = 'pillar';
         span.add(pillar);
       }
@@ -2166,11 +2037,7 @@ export class SchoolEngine {
     addSchoolPerimeterSpan(this.floor1Group, -23.7, -25.2, 21.8, -25.2, concreteWallCentralMat);
 
     // Setos densos oscuros pegados a los muros del aparcabicicletas para ocultar bordes duros
-    const hedgeMat = new THREE.MeshStandardMaterial({
-      color: '#1d281f',
-      roughness: 0.9,
-      envMapIntensity: 0.24,
-    });
+    const hedgeMat = new THREE.MeshLambertMaterial({ color: '#1d281f' });
     const bushGeo = new THREE.DodecahedronGeometry(0.68, 1);
     const bushPositions: Array<[number, number, number]> = [
       // Base oeste del aparcabicicletas
@@ -2199,39 +2066,31 @@ export class SchoolEngine {
       const bush = new THREE.Mesh(bushGeo, hedgeMat);
       bush.position.set(bx, by, bz);
       bush.scale.set(0.95 + (idx % 3) * 0.14, 0.8 + (idx % 2) * 0.18, 1.05);
-      bush.castShadow = !this.isSoftwareGl;
-      bush.receiveShadow = !this.isSoftwareGl;
+      bush.castShadow = shadowsOn;
+      bush.receiveShadow = shadowsOn;
       bush.userData.colliderKind = 'furniture';
       this.floor1Group.add(bush);
     });
 
     // Árboles oscuros más allá de las rejas (patio aparcabicicletas + patio central) para siluetas contra el cielo
-    const trunkMat = new THREE.MeshStandardMaterial({
-      color: '#241c16',
-      roughness: 0.9,
-      envMapIntensity: 0.25,
-    });
-    const foliageMat = new THREE.MeshStandardMaterial({
-      color: '#243025',
-      roughness: 0.84,
-      envMapIntensity: 0.28,
-    });
+    const trunkMat = new THREE.MeshLambertMaterial({ color: '#241c16' });
+    const foliageMat = new THREE.MeshLambertMaterial({ color: '#243025' });
     const addCourtyardTree = (targetGroup: THREE.Group, tx: number, ty: number, tz: number) => {
       const tree = new THREE.Group();
       tree.position.set(tx, ty, tz);
       const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 3.4, 8), trunkMat);
       trunk.position.y = 1.7;
-      trunk.castShadow = !this.isSoftwareGl;
+      trunk.castShadow = shadowsOn;
       trunk.userData.colliderKind = 'pillar';
       tree.add(trunk);
       const canopy1 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.65, 1), foliageMat);
       canopy1.position.set(0, 3.7, 0);
-      canopy1.castShadow = !this.isSoftwareGl;
+      canopy1.castShadow = shadowsOn;
       canopy1.userData.noCollision = true;
       tree.add(canopy1);
       const canopy2 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.2, 1), foliageMat);
       canopy2.position.set(0.7, 3.1, 0.4);
-      canopy2.castShadow = !this.isSoftwareGl;
+      canopy2.castShadow = shadowsOn;
       canopy2.userData.noCollision = true;
       tree.add(canopy2);
       targetGroup.add(tree);
@@ -2263,26 +2122,18 @@ export class SchoolEngine {
     // Cobertizo metálico envejecido + 4 bicicletas con pintura apagada atmosférica
     const shelter = new THREE.Group();
     shelter.position.set(27.5, 0, -22.4);
-    const steelMat = new THREE.MeshStandardMaterial({
-      color: '#4e5963',
-      roughness: 0.42,
-      metalness: 0.78,
-      envMapIntensity: 0.4,
-    });
-    const roofMat = new THREE.MeshStandardMaterial({
+    const steelMat = new THREE.MeshLambertMaterial({ color: '#4e5963' });
+    const roofMat = new THREE.MeshLambertMaterial({
       color: '#6f8c96',
-      roughness: 0.28,
-      metalness: 0.08,
       transparent: true,
       opacity: 0.36,
       depthWrite: false,
-      envMapIntensity: 0.38,
     });
     [-2.1, 2.1].forEach((sx) => {
       [-1.1, 1.1].forEach((sz) => {
         const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.35, 10), steelMat);
         leg.position.set(sx, 1.175, sz);
-        leg.castShadow = !this.isSoftwareGl;
+        leg.castShadow = shadowsOn;
         leg.userData.colliderKind = 'pillar';
         shelter.add(leg);
       });
@@ -2290,7 +2141,7 @@ export class SchoolEngine {
     [-1.1, 1.1].forEach((bz) => {
       const beam = new THREE.Mesh(new THREE.BoxGeometry(4.3, 0.06, 0.06), steelMat);
       beam.position.set(0, 2.34, bz);
-      beam.castShadow = !this.isSoftwareGl;
+      beam.castShadow = shadowsOn;
       beam.userData.noCollision = true;
       shelter.add(beam);
     });
@@ -2301,7 +2152,7 @@ export class SchoolEngine {
     shelter.add(shelterRoof);
 
     // 4 Bicicletas compuestas en tonos desgastados coherentes con la paleta nocturna
-    const tireMat = new THREE.MeshStandardMaterial({ color: '#161514', roughness: 0.88, envMapIntensity: 0.25 });
+    const tireMat = new THREE.MeshLambertMaterial({ color: '#161514' });
     const frameColors = ['#6e1e24', '#1e3a54', '#6e541c', '#1f3d2b'];
     [-1.35, -0.45, 0.45, 1.35].forEach((bx, idx) => {
       const bike = this.createCompositeBicycle(frameColors[idx], steelMat, tireMat);
@@ -2316,6 +2167,7 @@ export class SchoolEngine {
     const leafLoaderHandle = loadAparcabicicletasLeafInstancing({
       targetGroup: this.floor1Group,
       isSoftwareGl: this.isSoftwareGl,
+      isMobileDevice: this.isMobileDevice,
       onLoaded: (handle) => {
         if (this.disposed) {
           handle.dispose();
@@ -2346,12 +2198,10 @@ export class SchoolEngine {
     cord.position.y = 0.2;
     this.windChimeGroup.add(cord);
 
-    const bellGlassMat = new THREE.MeshStandardMaterial({
+    const bellGlassMat = new THREE.MeshLambertMaterial({
       color: '#38bdf8',
       emissive: '#0284c7',
-      emissiveIntensity: 0.35,
-      roughness: 0.12,
-      metalness: 0.2,
+      emissiveIntensity: this.usePostProcessing ? 0.35 : 0.55,
       transparent: true,
       opacity: 0.82,
     });
@@ -2361,10 +2211,10 @@ export class SchoolEngine {
 
     const tanzakuSlip = new THREE.Mesh(
       new THREE.PlaneGeometry(0.11, 0.42),
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshLambertMaterial({
         color: '#faf6ee',
         emissive: '#bae6fd',
-        emissiveIntensity: 0.25,
+        emissiveIntensity: this.usePostProcessing ? 0.25 : 0.42,
         side: THREE.DoubleSide,
       })
     );
@@ -2378,29 +2228,25 @@ export class SchoolEngine {
     steelMat: THREE.Material,
     tireMat: THREE.Material
   ): THREE.Group {
+    const shadowsOn = this.shadowsEnabled();
     const bike = new THREE.Group();
-    const paintMat = new THREE.MeshStandardMaterial({
-      color: colorHex,
-      roughness: 0.44,
-      metalness: 0.45,
-      envMapIntensity: 0.38,
-    });
+    const paintMat = new THREE.MeshLambertMaterial({ color: colorHex });
 
     const wheelGeo = new THREE.TorusGeometry(0.32, 0.035, 10, 22);
     const backWheel = new THREE.Mesh(wheelGeo, tireMat);
     backWheel.position.set(-0.52, 0.35, 0);
-    backWheel.castShadow = !this.isSoftwareGl;
+    backWheel.castShadow = shadowsOn;
     bike.add(backWheel);
 
     const frontWheel = new THREE.Mesh(wheelGeo, tireMat);
     frontWheel.position.set(0.52, 0.35, 0);
-    frontWheel.castShadow = !this.isSoftwareGl;
+    frontWheel.castShadow = shadowsOn;
     bike.add(frontWheel);
 
     const topTube = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.92, 8), paintMat);
     topTube.position.set(0, 0.68, 0);
     topTube.rotation.z = Math.PI / 2;
-    topTube.castShadow = !this.isSoftwareGl;
+    topTube.castShadow = shadowsOn;
     bike.add(topTube);
 
     const seatPost = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.55, 8), paintMat);
@@ -2428,7 +2274,7 @@ export class SchoolEngine {
   private buildFloor2Props(_maxAniso: number, timberMat: THREE.Material) {
     // 1. Baños 2F (East Room: x: 22.0..30.0, z: -24.0..-15.0)
     // Stalls + Washbasins + Hanako's WebRTC / Light-Reactive Mirror at (29.75, 1.55, -21.2)
-    const stallMat = new THREE.MeshStandardMaterial({ color: '#d6d3d1', roughness: 0.55 });
+    const stallMat = new THREE.MeshLambertMaterial({ color: '#d6d3d1' });
     for (let sz = -23.0; sz <= -19.4; sz += 1.75) {
       const partition = new THREE.Mesh(new THREE.BoxGeometry(1.7, 2.15, 0.06), stallMat);
       partition.position.set(22.9, 1.15, sz);
@@ -2439,7 +2285,7 @@ export class SchoolEngine {
     // Countertop & Sinks along East Wall near objeto_hanako (27.6, 0, -21.2)
     const counter = new THREE.Mesh(
       new THREE.BoxGeometry(0.75, 0.85, 3.6),
-      new THREE.MeshStandardMaterial({ color: '#e7e5e4', roughness: 0.25 })
+      new THREE.MeshLambertMaterial({ color: '#e7e5e4' })
     );
     counter.position.set(29.45, 0.425, -21.2);
     counter.userData.colliderKind = 'furniture';
@@ -2454,12 +2300,10 @@ export class SchoolEngine {
     const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.45, 0.08), timberMat);
     mirrorGroup.add(mirrorFrame);
 
-    this.hanakoMirrorMat = new THREE.MeshStandardMaterial({
+    this.hanakoMirrorMat = new THREE.MeshLambertMaterial({
       map: sensorService.getActiveVideoOrMirrorTexture(),
       emissive: new THREE.Color('#ea580c'),
       emissiveIntensity: 0.08,
-      roughness: 0.14,
-      metalness: 0.35,
     });
     const mirrorGlass = new THREE.Mesh(new THREE.PlaneGeometry(2.18, 1.24), this.hanakoMirrorMat);
     mirrorGlass.position.z = 0.05;
@@ -2470,7 +2314,7 @@ export class SchoolEngine {
       new THREE.MeshBasicMaterial({
         color: '#fb923c',
         transparent: true,
-        opacity: 0.15,
+        opacity: 0.18,
         side: THREE.DoubleSide,
       })
     );
@@ -2482,13 +2326,13 @@ export class SchoolEngine {
     // Chalkboard + Teacher Desks + Gyroscope-Reactive Astrolabe Sealed Compartment at (-24.5, 0, -23.4)
     const chalkboard = new THREE.Mesh(
       new THREE.BoxGeometry(3.8, 1.45, 0.07),
-      new THREE.MeshStandardMaterial({ color: '#14532d', roughness: 0.78 })
+      new THREE.MeshLambertMaterial({ color: '#14532d' })
     );
     chalkboard.position.set(-26.0, 1.85, -24.52);
     chalkboard.userData.colliderKind = 'furniture';
     this.floor2Group.add(chalkboard);
 
-    const deskMat = new THREE.MeshStandardMaterial({ color: '#5c3d24', roughness: 0.5 });
+    const deskMat = new THREE.MeshLambertMaterial({ color: '#5c3d24' });
     const mainDesk = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.82, 1.0), deskMat);
     mainDesk.position.set(-24.5, 0.41, -23.45);
     mainDesk.userData.colliderKind = 'furniture';
@@ -2504,21 +2348,9 @@ export class SchoolEngine {
     cofferBase.position.set(-24.5, 0.84, -23.45);
     cofferBase.userData.noCollision = true;
 
-    const lacquerMat = new THREE.MeshStandardMaterial({
-      color: '#3b1612',
-      roughness: 0.42,
-      metalness: 0.18,
-    });
-    const oxidizedIronMat = new THREE.MeshStandardMaterial({
-      color: '#574438',
-      roughness: 0.58,
-      metalness: 0.65,
-    });
-    const agedBrassMat = new THREE.MeshStandardMaterial({
-      color: '#a17c42',
-      roughness: 0.36,
-      metalness: 0.78,
-    });
+    const lacquerMat = new THREE.MeshLambertMaterial({ color: '#3b1612' });
+    const oxidizedIronMat = new THREE.MeshLambertMaterial({ color: '#574438' });
+    const agedBrassMat = new THREE.MeshLambertMaterial({ color: '#a17c42' });
 
     const boxBody = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.22, 0.52), lacquerMat);
     boxBody.position.y = 0.11;
@@ -2655,14 +2487,38 @@ export class SchoolEngine {
       fallbackVisual.add(floatingCore);
 
       let standeeMesh: THREE.Mesh | undefined;
+      let glowSprite: THREE.Sprite | undefined;
+
+      // Aura aditiva suave en marcadores para compensar la ausencia de Bloom en móviles
+      if (this.glowSpriteTex) {
+        const auraColor =
+          marker.kind === 'personaje'
+            ? '#38bdf8'
+            : marker.kind === 'escalera'
+            ? '#facc15'
+            : _colorLocked;
+        const spriteMat = new THREE.SpriteMaterial({
+          map: this.glowSpriteTex,
+          color: auraColor,
+          transparent: true,
+          opacity: marker.kind === 'escalera' ? 0.28 : 0.34,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          fog: true,
+        });
+        glowSprite = new THREE.Sprite(spriteMat);
+        glowSprite.position.set(0, marker.kind === 'escalera' ? 1.15 : 1.48, 0);
+        glowSprite.scale.set(1.55, 1.55, 1);
+        glowSprite.visible = !this.usePostProcessing;
+        glowSprite.renderOrder = 1;
+        root.add(glowSprite);
+      }
 
       if (marker.kind === 'personaje') {
         // Fallback visual while GLB loads
         const standeeTex = createCharacterStandeeTexture(marker.portraitUrl || '', marker.label);
-        const standeeMat = new THREE.MeshStandardMaterial({
+        const standeeMat = new THREE.MeshLambertMaterial({
           map: standeeTex,
-          roughness: 0.65,
-          metalness: 0.02,
           transparent: true,
           side: THREE.DoubleSide,
         });
@@ -2674,7 +2530,7 @@ export class SchoolEngine {
 
         const base = new THREE.Mesh(
           new THREE.CylinderGeometry(0.36, 0.42, 0.14, 16),
-          new THREE.MeshStandardMaterial({ color: '#3b2514', roughness: 0.65 })
+          new THREE.MeshLambertMaterial({ color: '#3b2514' })
         );
         base.position.y = 0.07;
         base.castShadow = false;
@@ -2683,13 +2539,10 @@ export class SchoolEngine {
 
         const diamond = new THREE.Mesh(
           new THREE.OctahedronGeometry(0.14, 0),
-          new THREE.MeshStandardMaterial({
+          new THREE.MeshLambertMaterial({
             color: '#38bdf8',
             emissive: '#0284c7',
-            emissiveIntensity: 0.22,
-            toneMapped: true,
-            roughness: 0.25,
-            metalness: 0.45,
+            emissiveIntensity: 0.26,
           })
         );
         diamond.position.y = 2.08;
@@ -2699,13 +2552,10 @@ export class SchoolEngine {
       } else if (marker.kind === 'objeto') {
         const gem = new THREE.Mesh(
           new THREE.OctahedronGeometry(0.24, 0),
-          new THREE.MeshStandardMaterial({
+          new THREE.MeshLambertMaterial({
             color: '#f43f5e',
             emissive: '#e11d48',
-            emissiveIntensity: 0.22,
-            toneMapped: true,
-            roughness: 0.25,
-            metalness: 0.45,
+            emissiveIntensity: 0.26,
           })
         );
         gem.position.y = 1.15;
@@ -2715,11 +2565,7 @@ export class SchoolEngine {
 
         const halo = new THREE.Mesh(
           new THREE.TorusGeometry(0.34, 0.02, 10, 28),
-          new THREE.MeshStandardMaterial({
-            color: '#fda4af',
-            roughness: 0.28,
-            metalness: 0.75,
-          })
+          new THREE.MeshLambertMaterial({ color: '#fda4af' })
         );
         halo.position.y = 1.15;
         halo.rotation.x = Math.PI / 3;
@@ -2757,6 +2603,7 @@ export class SchoolEngine {
         floatingCore,
         fallbackVisual,
         ringMesh,
+        glowSprite,
         standeeMesh,
         hitProxy,
       };
@@ -2825,7 +2672,7 @@ export class SchoolEngine {
   private renderCurrentFrame() {
     if (this.disposed) return;
     try {
-      if (this.composer && !this.isSoftwareGl) {
+      if (this.usePostProcessing && this.composer) {
         this.composer.render();
       } else {
         this.renderer.render(this.scene, this.camera);
@@ -2838,62 +2685,68 @@ export class SchoolEngine {
   private updateDynamicFloorLighting() {
     const px = this.playerPos.x;
     const pz = this.playerPos.z;
+    const inNorthWingRoom = pz < -13.5;
 
     if (this.currentFloor === 1 && this.floor1Lights.length >= 2) {
       const corridorLight = this.floor1Lights[0];
       const wingLight = this.floor1Lights[1];
 
-      // Luz de corredor sigue al jugador cuantizada suavemente dentro de la planta activa
-      if (pz > 2.2) {
-        corridorLight.position.set(0, 2.95, 4.6);
-        corridorLight.color.copy(_colorCorridor);
-      } else if (pz < -5.5 && px < -22) {
-        corridorLight.position.set(-26.0, 2.95, Math.max(-17.5, pz));
-        corridorLight.color.copy(_colorCorridor);
-      } else if (pz < -5.5 && px > 22) {
-        corridorLight.position.set(26.0, 2.95, Math.max(-14.5, pz));
-        corridorLight.color.copy(pz < -14 ? _colorStairWell : _colorCorridor);
-      } else {
-        corridorLight.position.set(THREE.MathUtils.clamp(Math.round(px * 0.5) * 2, -25, 25), 2.95, 0);
-        corridorLight.color.copy(_colorCorridor);
-      }
+      corridorLight.visible = !inNorthWingRoom;
+      wingLight.visible = inNorthWingRoom;
 
-      if (px >= 0) {
+      if (!inNorthWingRoom) {
+        if (pz > 2.2) {
+          corridorLight.position.set(0, 2.95, 4.6);
+          corridorLight.color.copy(_colorCorridor);
+        } else if (pz < -5.5 && px < -22) {
+          corridorLight.position.set(-26.0, 2.95, pz);
+          corridorLight.color.copy(_colorCorridor);
+        } else if (pz < -5.5 && px > 22) {
+          corridorLight.position.set(26.0, 2.95, pz);
+          corridorLight.color.copy(_colorCorridor);
+        } else {
+          corridorLight.position.set(THREE.MathUtils.clamp(Math.round(px * 0.5) * 2, -25, 25), 2.95, 0);
+          corridorLight.color.copy(_colorCorridor);
+        }
+      } else if (px >= 0) {
         wingLight.position.set(26.2, 3.6, -20.8);
         wingLight.color.copy(_colorWing1FEast);
-        wingLight.intensity = 1.05;
+        wingLight.intensity = 1.15;
         wingLight.distance = 18;
       } else {
         wingLight.position.set(-26.0, 2.9, -21.5);
         wingLight.color.copy(_colorWing1FWest);
-        wingLight.intensity = 1.15;
-        wingLight.distance = 14;
+        wingLight.intensity = 1.25;
+        wingLight.distance = 15;
       }
     } else if (this.currentFloor === 2 && this.floor2Lights.length >= 2) {
       const corridorLight = this.floor2Lights[0];
       const wingLight = this.floor2Lights[1];
 
-      if (pz < -5.5 && px < -22) {
-        corridorLight.position.set(-26.0, 2.95, Math.max(-17.5, pz));
-        corridorLight.color.copy(_colorCorridor);
-      } else if (pz < -5.5 && px > 22) {
-        corridorLight.position.set(26.0, 2.95, Math.max(-14.5, pz));
-        corridorLight.color.copy(_colorCorridor);
-      } else {
-        corridorLight.position.set(THREE.MathUtils.clamp(Math.round(px * 0.5) * 2, -25, 25), 2.95, 0);
-        corridorLight.color.copy(_colorCorridor);
-      }
+      corridorLight.visible = !inNorthWingRoom;
+      wingLight.visible = inNorthWingRoom;
 
-      if (px >= 0) {
+      if (!inNorthWingRoom) {
+        if (pz < -5.5 && px < -22) {
+          corridorLight.position.set(-26.0, 2.95, pz);
+          corridorLight.color.copy(_colorCorridor);
+        } else if (pz < -5.5 && px > 22) {
+          corridorLight.position.set(26.0, 2.95, pz);
+          corridorLight.color.copy(_colorCorridor);
+        } else {
+          corridorLight.position.set(THREE.MathUtils.clamp(Math.round(px * 0.5) * 2, -25, 25), 2.95, 0);
+          corridorLight.color.copy(_colorCorridor);
+        }
+      } else if (px >= 0) {
         wingLight.position.set(26.2, 2.95, -20.5);
         wingLight.color.copy(_colorWing2FEast);
-        wingLight.intensity = 1.1;
-        wingLight.distance = 14;
+        wingLight.intensity = 1.2;
+        wingLight.distance = 15;
       } else {
         wingLight.position.set(-25.8, 2.95, -21.5);
         wingLight.color.copy(_colorWing2FWest);
-        wingLight.intensity = 1.2;
-        wingLight.distance = 14;
+        wingLight.intensity = 1.25;
+        wingLight.distance = 15;
       }
     }
   }
@@ -2908,12 +2761,12 @@ export class SchoolEngine {
     this.floor1Group.visible = floor === 1;
     this.floor2Group.visible = floor === 2;
 
-    // Apaga explícitamente luces del piso inactivo para evitar sobrecarga PBR en GPU
+    // Apaga todas las luces del piso inactivo (las activas se seleccionan en updateDynamicFloorLighting)
     for (let i = 0; i < this.floor1Lights.length; i++) {
-      this.floor1Lights[i].visible = floor === 1;
+      this.floor1Lights[i].visible = false;
     }
     for (let i = 0; i < this.floor2Lights.length; i++) {
-      this.floor2Lights[i].visible = floor === 2;
+      this.floor2Lights[i].visible = false;
     }
 
     if (spawnPos) {
@@ -3038,11 +2891,7 @@ export class SchoolEngine {
   }
 
   public captureScreenshot(): string {
-    if (this.composer && !this.isSoftwareGl) {
-      this.composer.render();
-    } else {
-      this.renderer.render(this.scene, this.camera);
-    }
+    this.renderCurrentFrame();
     return this.renderer.domElement.toDataURL('image/png');
   }
 
@@ -3336,6 +3185,9 @@ export class SchoolEngine {
         if (vis.ringMesh.material !== targetMat) {
           vis.ringMesh.material = targetMat;
         }
+        if (vis.glowSprite) {
+          vis.glowSprite.material.color.copy(isReady ? _colorReady : _colorLocked);
+        }
       }
     });
 
@@ -3490,6 +3342,17 @@ export class SchoolEngine {
     const elapsed = this.clock.elapsedTime;
 
     if (!this.isPaused && !this.externallyPaused && !document.hidden) {
+      if (this.usePostProcessing) {
+        if (delta > 0.025) {
+          this.slowFrameCount++;
+          if (this.slowFrameCount >= 45) {
+            this.downgradePostProcessing();
+          }
+        } else {
+          this.slowFrameCount = Math.max(0, this.slowFrameCount - 1);
+        }
+      }
+
       const shouldUpdateMirror =
         this.currentFloor === 2 && this.playerPos.x > 18 && this.playerPos.z < -12;
       sensorService.update(delta, elapsed, shouldUpdateMirror);
@@ -3514,7 +3377,7 @@ export class SchoolEngine {
         });
       }
 
-      if (this.composer && !this.isSoftwareGl) {
+      if (this.usePostProcessing && this.composer) {
         this.composer.render();
       } else {
         this.renderer.render(this.scene, this.camera);
@@ -3546,7 +3409,7 @@ export class SchoolEngine {
     this.camera.updateProjectionMatrix();
     this.renderer.setPixelRatio(pixelRatio);
     this.renderer.setSize(width, height);
-    if (this.composer && !this.isSoftwareGl) {
+    if (this.usePostProcessing && this.composer) {
       this.composer.setPixelRatio(pixelRatio);
       this.composer.setSize(width, height);
       if (this.bloomPass) {
@@ -3643,6 +3506,9 @@ export class SchoolEngine {
         } else if (mesh.material) {
           uniqueMaterials.add(mesh.material);
         }
+      } else if ((obj as THREE.Sprite).isSprite) {
+        const sprite = obj as THREE.Sprite;
+        if (sprite.material) uniqueMaterials.add(sprite.material);
       }
     });
 

@@ -116,9 +116,10 @@ function prepareMarkerTemplateOnce(gltf: GLTF): GLTF {
     if (!(child as THREE.Mesh).isMesh) return;
     const mesh = child as THREE.Mesh;
 
-    // Sin costo de sombras en marcadores interactivos
+    // Sin costo de sombras y con frustum culling activo en todos los marcadores interactivos
     mesh.castShadow = false;
     mesh.receiveShadow = false;
+    mesh.frustumCulled = true;
 
     _meshBox.setFromObject(mesh);
     const meshCenterY = (_meshBox.min.y + _meshBox.max.y) * 0.5;
@@ -323,19 +324,20 @@ export class Aula404MarkerViewer {
     this.camera = new THREE.PerspectiveCamera(44, width / height, 0.1, 50);
     this.camera.position.copy(Aula404MarkerViewer.DEFAULT_CAM_POS);
 
-    // 3. Renderer WebGL con canal alfa transparente y mapeo tonal ACES Filmic para brillo neón
+    const isMobile = detectMobileDevice();
+
+    // 3. Renderer WebGL con canal alfa transparente y optimización móvil (antialias off, pixelRatio <= 1)
     this.renderer = new THREE.WebGLRenderer({
       alpha: true,
-      antialias: !this.isSoftwareGl,
+      antialias: !this.isSoftwareGl && !isMobile,
       powerPreference: 'high-performance',
     });
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
-    const maxPixelRatio = detectMobileDevice() ? 1.25 : 1.5;
     this.renderer.setPixelRatio(
-      this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, maxPixelRatio)
+      this.isSoftwareGl || isMobile ? 1 : Math.min(window.devicePixelRatio || 1, 1.0)
     );
     this.renderer.setSize(width, height);
     this.renderer.domElement.className = 'block h-full w-full touch-none outline-none';
