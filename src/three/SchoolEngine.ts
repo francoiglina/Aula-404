@@ -2022,24 +2022,19 @@ export class SchoolEngine {
     const hedgeMat = this.getCachedLambertMaterial('hedge_foliage', { color: '#2d4031' });
     const bushGeo = new THREE.DodecahedronGeometry(0.68, 1);
     const bushPositions: Array<[number, number, number]> = [
-      // Base oeste del aparcabicicletas
+      // Base oeste del aparcabicicletas (lado izquierdo)
       [22.35, 0.42, -16.2],
       [22.35, 0.48, -17.6],
       [22.35, 0.44, -19.2],
       [22.35, 0.5, -21.0],
       [22.35, 0.46, -22.8],
       [22.35, 0.48, -24.4],
-      // Base norte detrás del aparcabicicletas
+      // Base norte detrás del aparcabicicletas (fondo)
       [24.0, 0.46, -24.65],
       [25.6, 0.44, -24.65],
       [27.2, 0.48, -24.65],
       [29.4, 0.46, -24.65],
-      // Costado este exterior detrás de la reja
-      [30.95, 0.52, -16.4],
-      [30.95, 0.56, -18.5],
-      [30.95, 0.5, -20.8],
-      [30.95, 0.58, -23.2],
-      // Costado oeste exterior (patio central junto a la reja)
+      // Costado oeste exterior (patio central junto a la reja izquierda)
       [21.2, 0.55, -16.6],
       [21.2, 0.52, -19.4],
       [21.2, 0.58, -22.4],
