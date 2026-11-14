@@ -377,20 +377,20 @@ export default function App() {
   }, []);
 
   const handleCompleteIntroLore = useCallback(() => {
-    // Tras el fade-out de la intro a negro, entra en pausa atmosférica de 4s con el 3D y HUD ya montados
+    // Tras el fade-out de la intro a negro, entra en pausa atmosférica de 2s con el 3D y HUD ya montados
     setEntryStage('black_hold');
   }, []);
 
-  // Pausa exacta de 4 segundos en #000000 antes del fade-in unificado de Escena 3D + HUD
+  // Pausa exacta de 2 segundos en #000000 antes del fade-in unificado de Escena 3D + HUD
   useEffect(() => {
     if (entryStage !== 'black_hold') return;
     const holdTimer = window.setTimeout(() => {
       setEntryStage('ready');
       setIsInitialized(true);
-      soundEngine.startBgm(1.8);
+      soundEngine.startBgm(1.2);
       lastNotifiedFloorRef.current = null;
       showLocationNotice(1);
-    }, 4000);
+    }, 2000);
 
     return () => window.clearTimeout(holdTimer);
   }, [entryStage, showLocationNotice]);

@@ -17,6 +17,21 @@ export interface OutdoorGroundPbrMaps {
   bumpMap: THREE.CanvasTexture;
 }
 
+function applyFastTextureSettings(
+  tex: THREE.CanvasTexture,
+  wrapS: THREE.Wrapping = THREE.ClampToEdgeWrapping,
+  wrapT: THREE.Wrapping = THREE.ClampToEdgeWrapping
+): THREE.CanvasTexture {
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = wrapS;
+  tex.wrapT = wrapT;
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = 1;
+  return tex;
+}
+
 /**
  * Genera textura difusa oscura de tablones japoneses envejecidos (512x512).
  * Mantiene tono nogal oscuro/carbón con vetas orgánicas y juntas pronunciadas.
@@ -100,11 +115,7 @@ export function createWoodPlankTexture(maxAnisotropy: number): THREE.CanvasTextu
   }
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.anisotropy = maxAnisotropy;
-  return tex;
+  return applyFastTextureSettings(tex, THREE.RepeatWrapping, THREE.RepeatWrapping);
 }
 
 /**
@@ -250,11 +261,7 @@ export function createCeilingPlankTexture(maxAnisotropy: number): THREE.CanvasTe
   }
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.anisotropy = maxAnisotropy;
-  return tex;
+  return applyFastTextureSettings(tex, THREE.RepeatWrapping, THREE.RepeatWrapping);
 }
 
 export function createStoneTileTexture(
@@ -299,11 +306,7 @@ export function createStoneTileTexture(
   }
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.anisotropy = maxAnisotropy;
-  return tex;
+  return applyFastTextureSettings(tex, THREE.RepeatWrapping, THREE.RepeatWrapping);
 }
 
 /**
@@ -370,11 +373,7 @@ export function createOutdoorConcreteTexture(maxAnisotropy: number): THREE.Canva
   }
 
   const map = new THREE.CanvasTexture(colorCanvas);
-  map.colorSpace = THREE.SRGBColorSpace;
-  map.wrapS = THREE.RepeatWrapping;
-  map.wrapT = THREE.RepeatWrapping;
-  map.anisotropy = maxAnisotropy;
-  return map;
+  return applyFastTextureSettings(map, THREE.RepeatWrapping, THREE.RepeatWrapping);
 }
 
 /**
@@ -537,11 +536,9 @@ export function createConcreteBlockWallTexture(
   }
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.anisotropy = maxAnisotropy;
-  return tex;
+  return applyFastTextureSettings(tex);
 }
 
 export function createSchoolWallTexture(maxAnisotropy: number): THREE.CanvasTexture {
@@ -613,11 +610,9 @@ export function createSchoolWallTexture(maxAnisotropy: number): THREE.CanvasText
   ctx.fillRect(0, 494, 512, 18);
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.anisotropy = maxAnisotropy;
-  return tex;
+  return applyFastTextureSettings(tex);
 }
 
 export function createLockerTexture(maxAnisotropy: number): THREE.CanvasTexture {
@@ -657,9 +652,7 @@ export function createLockerTexture(maxAnisotropy: number): THREE.CanvasTexture 
   }
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = maxAnisotropy;
-  return tex;
+  return applyFastTextureSettings(tex);
 }
 
 /**
@@ -747,9 +740,7 @@ export function createSlidingDoorTexture(maxAnisotropy: number): THREE.CanvasTex
   ctx.strokeRect(424, 282, 22, 70);
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = maxAnisotropy;
-  return tex;
+  return applyFastTextureSettings(tex);
 }
 
 /**
@@ -847,9 +838,7 @@ export function createWoodenSignTexture(
   ctx.fillText(title, 256, 81);
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = maxAnisotropy;
-  return tex;
+  return applyFastTextureSettings(tex);
 }
 
 export function createMarkerPlaqueTexture(
@@ -886,8 +875,7 @@ export function createMarkerPlaqueTexture(
   ctx.fillText(subtitle, 256, 114);
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
+  return applyFastTextureSettings(tex);
 }
 
 export function createCharacterStandeeTexture(
@@ -952,7 +940,7 @@ export function createCharacterStandeeTexture(
 
   drawFrame();
   const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
+  applyFastTextureSettings(tex);
 
   if (portraitUrl) {
     const img = new Image();

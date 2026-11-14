@@ -160,16 +160,16 @@ export const IntroLoreScreen: React.FC<IntroLoreScreenProps> = ({
 
     setIsExiting(true);
 
-    // Fade-out sincronizado de opening.mp3 (1.5s -> 0 -> pause) y de la pantalla a la escena 3D
+    // Fade-out sincronizado de opening.mp3 (0.75s -> 0 -> pause) y de la pantalla a la escena 3D
     const audioFadePromise = audioControllerRef.current
-      ? audioControllerRef.current.fadeOutAndStop(1500)
+      ? audioControllerRef.current.fadeOutAndStop(750)
       : Promise.resolve();
 
     exitTimerRef.current = window.setTimeout(() => {
       void audioFadePromise.finally(() => {
         onComplete();
       });
-    }, 1520);
+    }, 770);
   }, [onComplete, onPrepareMainScene]);
 
   const handleScreenInteraction = useCallback(() => {

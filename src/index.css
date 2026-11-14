@@ -861,8 +861,8 @@
   opacity: 0;
   transform: translate3d(0, 6px, 0);
   transition:
-    opacity 1150ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 1150ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 #intro-lore-screen.is-entered .intro-lore-content {
@@ -875,8 +875,8 @@
   opacity: 0;
   transform: translate3d(0, -4px, 0);
   transition:
-    opacity 1500ms cubic-bezier(0.4, 0, 0.2, 1),
-    transform 1500ms cubic-bezier(0.4, 0, 0.2, 1);
+    opacity 750ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 750ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .intro-lore-stage {
@@ -951,7 +951,7 @@
   pointer-events: none;
 }
 
-/* Capa unificada para fade-in simultáneo de Escena 3D + todo el HUD tras los 4s en negro */
+/* Capa unificada para fade-in simultáneo de Escena 3D + todo el HUD tras los 2s en negro */
 #main-experience-stage {
   position: fixed;
   inset: 0;
@@ -960,7 +960,7 @@
   height: 100%;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 1800ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 900ms cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity;
 }
 

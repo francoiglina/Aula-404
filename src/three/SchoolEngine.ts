@@ -4,6 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { WALKABLE_ZONES, WORLD_MARKERS } from '../data/gameContent';
 import { sensorService } from '../services/sensorService';
 import { soundEngine } from '../services/soundEngine';
@@ -64,14 +65,10 @@ const _pointerNdc = new THREE.Vector2();
 const _markerTargetPos = new THREE.Vector3();
 const _projectedNdc = new THREE.Vector3();
 const _raycastHits: THREE.Intersection[] = [];
+const _invFloorWorld = new THREE.Matrix4();
+const _relMatrix = new THREE.Matrix4();
 const _colorReady = new THREE.Color('#10b981');
 const _colorLocked = new THREE.Color('#f43f5e');
-const _colorCorridor = new THREE.Color('#b8d0de');
-const _colorStairWell = new THREE.Color('#8ab0c4');
-const _colorWing1FWest = new THREE.Color('#d9b98b');
-const _colorWing1FEast = new THREE.Color('#7fa4b8');
-const _colorWing2FWest = new THREE.Color('#d9c296');
-const _colorWing2FEast = new THREE.Color('#94b8c8');
 
 function detectSoftwareWebGL(): boolean {
   try {
@@ -107,18 +104,16 @@ export class SchoolEngine {
   private isSoftwareGl: boolean;
   private isMobileDevice: boolean;
   private usePostProcessing: boolean;
+  private renderScale: number;
   private slowFrameCount = 0;
   private composer: EffectComposer | null = null;
   private bloomPass: UnrealBloomPass | null = null;
   private bloomResScale = 0.5;
-  private sunLight: THREE.DirectionalLight | null = null;
-  private floor1Lights: THREE.PointLight[] = [];
-  private floor2Lights: THREE.PointLight[] = [];
   private skybox: AtmosphericSkyboxHandle | null = null;
-  private readonly sunOffset = new THREE.Vector3(6.5, 9.5, -16);
   private sharedTextures: THREE.Texture[] = [];
+  private materialCache = new Map<string, THREE.MeshLambertMaterial>();
   private sharedLampGeo: THREE.BoxGeometry | null = null;
-  private sharedLampMat: THREE.MeshBasicMaterial | null = null;
+  private sharedLampMat: THREE.MeshLambertMaterial | null = null;
   private sharedHaloGeo: THREE.PlaneGeometry | null = null;
   private sharedHaloMat: THREE.MeshBasicMaterial | null = null;
   private glowSpriteTex: THREE.CanvasTexture | null = null;
@@ -201,16 +196,24 @@ export class SchoolEngine {
     this.isMobileDevice = detectMobileDevice();
     this.usePostProcessing = !this.isSoftwareGl && !this.isMobileDevice;
     this.bloomResScale = 0.5;
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.renderScale = this.isMobileDevice
+      ? dpr > 1.2
+        ? 0.85
+        : 0.9
+      : this.isSoftwareGl
+      ? 0.85
+      : 1.0;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#0c1315');
-    this.scene.fog = new THREE.FogExp2('#0c1315', 0.036);
+    this.scene.fog = new THREE.FogExp2('#0c1315', 0.027);
 
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || window.innerHeight;
 
-    // Far recortado al límite efectivo de la niebla exponencial (0.036) para culling agresivo
-    this.camera = new THREE.PerspectiveCamera(68, width / height, 0.15, 76);
+    // Far calibrado al límite efectivo de la niebla exponencial (0.027) para visibilidad nítida y culling agresivo
+    this.camera = new THREE.PerspectiveCamera(68, width / height, 0.15, 92);
     this.camera.position.copy(this.playerPos);
     soundEngine.attachCamera(this.camera);
 
@@ -222,11 +225,8 @@ export class SchoolEngine {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.96;
-    this.renderer.setPixelRatio(this.getOptimalPixelRatio());
-    this.renderer.setSize(width, height);
-    this.renderer.shadowMap.enabled = this.shadowsEnabled();
-    this.renderer.shadowMap.type = THREE.BasicShadowMap;
+    this.renderer.toneMappingExposure = 1.3;
+    this.renderer.shadowMap.enabled = false;
     this.renderer.domElement.id = 'three-canvas';
     this.renderer.domElement.className = 'block h-full w-full touch-none outline-none';
 
@@ -237,12 +237,12 @@ export class SchoolEngine {
     if (this.usePostProcessing) {
       const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
       this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-      this.scene.environmentIntensity = 0.32;
+      this.scene.environmentIntensity = 0.35;
       pmremGenerator.dispose();
     }
 
-    // Skybox / Domo atmosférico contenido dentro del plano far (radius = 68 < far = 76)
-    this.skybox = createAtmosphericSkybox(68);
+    // Skybox / Domo atmosférico contenido dentro del plano far (radius = 82 < far = 92)
+    this.skybox = createAtmosphericSkybox(82);
     this.scene.add(this.skybox.mesh);
 
     this.createSharedCeilingLampResources();
@@ -252,20 +252,17 @@ export class SchoolEngine {
       1: buildFloorCollisionData(this.floor1Group, 1, WALKABLE_ZONES),
       2: buildFloorCollisionData(this.floor2Group, 2, WALKABLE_ZONES),
     };
+    this.mergeStaticFloorGeometries(this.floor1Group);
+    this.mergeStaticFloorGeometries(this.floor2Group);
+    this.freezeStaticMatrices(this.floor1Group);
+    this.freezeStaticMatrices(this.floor2Group);
     this.buildMarkers();
     this.setupPostProcessing(width, height);
+    this.applyRendererResolution(width, height);
 
-    // Pre-compila ambos pisos manteniendo exactamente 1 PointLight activo en escena (máx 3 luces totales)
+    // Pre-compila ambos pisos manteniendo la escena sin PointLights ni pases de sombra
     this.floor1Group.visible = true;
     this.floor2Group.visible = true;
-    if (this.floor1Lights.length >= 2) {
-      this.floor1Lights[0].visible = true;
-      this.floor1Lights[1].visible = false;
-    }
-    for (let i = 0; i < this.floor2Lights.length; i++) {
-      this.floor2Lights[i].visible = false;
-    }
-    this.updateSunShadowTracking();
 
     if (!this.isSoftwareGl) {
       for (let i = 0; i < this.sharedTextures.length; i++) {
@@ -290,11 +287,41 @@ export class SchoolEngine {
   }
 
   private shadowsEnabled(): boolean {
-    return !this.isSoftwareGl && !this.isMobileDevice;
+    return false;
   }
 
   private getOptimalPixelRatio(): number {
     return Math.min(window.devicePixelRatio || 1, 1.0);
+  }
+
+  private applyRendererResolution(width: number, height: number) {
+    const pixelRatio = this.getOptimalPixelRatio();
+    const scaledW = Math.max(1, Math.floor(width * this.renderScale));
+    const scaledH = Math.max(1, Math.floor(height * this.renderScale));
+    this.renderer.setPixelRatio(pixelRatio);
+    this.renderer.setSize(scaledW, scaledH, false);
+    if (this.usePostProcessing && this.composer) {
+      this.composer.setPixelRatio(pixelRatio);
+      this.composer.setSize(scaledW, scaledH);
+      if (this.bloomPass) {
+        this.bloomPass.setSize(
+          Math.max(1, Math.floor(scaledW * this.bloomResScale)),
+          Math.max(1, Math.floor(scaledH * this.bloomResScale))
+        );
+      }
+    }
+  }
+
+  private getCachedLambertMaterial(
+    key: string,
+    params: THREE.MeshLambertMaterialParameters
+  ): THREE.MeshLambertMaterial {
+    let mat = this.materialCache.get(key);
+    if (!mat) {
+      mat = new THREE.MeshLambertMaterial(params);
+      this.materialCache.set(key, mat);
+    }
+    return mat;
   }
 
   private createSharedCeilingLampResources() {
@@ -315,6 +342,10 @@ export class SchoolEngine {
 
     const haloTex = new THREE.CanvasTexture(canvas);
     haloTex.colorSpace = THREE.SRGBColorSpace;
+    haloTex.generateMipmaps = false;
+    haloTex.minFilter = THREE.LinearFilter;
+    haloTex.magFilter = THREE.LinearFilter;
+    haloTex.anisotropy = 1;
     this.sharedTextures.push(haloTex);
 
     // Aura radial aditiva compartida para compensar ausencia de UnrealBloomPass en móviles
@@ -332,12 +363,18 @@ export class SchoolEngine {
     }
     const glowTex = new THREE.CanvasTexture(spriteCanvas);
     glowTex.colorSpace = THREE.SRGBColorSpace;
+    glowTex.generateMipmaps = false;
+    glowTex.minFilter = THREE.LinearFilter;
+    glowTex.magFilter = THREE.LinearFilter;
+    glowTex.anisotropy = 1;
     this.glowSpriteTex = glowTex;
     this.sharedTextures.push(glowTex);
 
     this.sharedLampGeo = new THREE.BoxGeometry(1.45, 0.06, 0.34);
-    this.sharedLampMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color('#bae6fd').multiplyScalar(this.usePostProcessing ? 1.55 : 1.85),
+    this.sharedLampMat = new THREE.MeshLambertMaterial({
+      color: '#e0f2fe',
+      emissive: '#bae6fd',
+      emissiveIntensity: this.usePostProcessing ? 1.25 : 1.45,
       toneMapped: true,
     });
 
@@ -346,7 +383,7 @@ export class SchoolEngine {
       map: haloTex,
       color: '#bae6fd',
       transparent: true,
-      opacity: this.usePostProcessing ? 0.24 : 0.44,
+      opacity: this.usePostProcessing ? 0.24 : 0.4,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.FrontSide,
@@ -428,10 +465,10 @@ export class SchoolEngine {
       this.composer = null;
     }
     if (this.sharedLampMat) {
-      this.sharedLampMat.color.set('#bae6fd').multiplyScalar(1.85);
+      this.sharedLampMat.emissiveIntensity = 1.45;
     }
     if (this.sharedHaloMat) {
-      this.sharedHaloMat.opacity = 0.44;
+      this.sharedHaloMat.opacity = 0.4;
     }
     this.markersById.forEach((vis) => {
       if (vis.glowSprite) {
@@ -441,72 +478,18 @@ export class SchoolEngine {
   }
 
   private setupLighting() {
-    // Penumbra fría superior vs rebote oscuro de madera inferior
-    const hemiLight = new THREE.HemisphereLight('#8ea6b4', '#261e16', 0.62);
+    // Iluminación global de costo GPU mínimo (sin PointLights ni mapas de sombra):
+    // HemisphereLight fría/cálida + AmbientLight equilibrada + DirectionalLight sutil para relieve
+    const hemiLight = new THREE.HemisphereLight('#8ea4c8', '#5c5346', 1.25);
     this.scene.add(hemiLight);
 
-    // Única luz direccional principal (512x512 en escritorio; sombras desactivadas en móvil)
-    const sunLight = new THREE.DirectionalLight('#ffebd2', 1.95);
-    sunLight.position.set(
-      this.playerPos.x + this.sunOffset.x,
-      this.sunOffset.y,
-      this.playerPos.z + this.sunOffset.z
-    );
-    if (this.shadowsEnabled()) {
-      sunLight.castShadow = true;
-      sunLight.shadow.mapSize.set(512, 512);
-      sunLight.shadow.camera.near = 1;
-      sunLight.shadow.camera.far = 42;
-      sunLight.shadow.camera.left = -14;
-      sunLight.shadow.camera.right = 14;
-      sunLight.shadow.camera.top = 14;
-      sunLight.shadow.camera.bottom = -14;
-      sunLight.shadow.bias = -0.0005;
-    } else {
-      sunLight.castShadow = false;
-    }
-    this.scene.add(sunLight);
-    this.scene.add(sunLight.target);
-    this.sunLight = sunLight;
+    const ambientLight = new THREE.AmbientLight('#b8c7dc', 0.62);
+    this.scene.add(ambientLight);
 
-    // Máximo 1 PointLight activo en todo momento (1 Hemisphere + 1 Directional + 1 Point = 3 luces máx)
-    const corridorLight1F = new THREE.PointLight('#b8d0de', 1.15, 16, 1.5);
-    corridorLight1F.castShadow = false;
-    corridorLight1F.position.set(-1.5, 2.95, 2.0);
-    this.floor1Group.add(corridorLight1F);
-
-    const wingLight1F = new THREE.PointLight('#d9b98b', 1.25, 17, 1.5);
-    wingLight1F.castShadow = false;
-    wingLight1F.position.set(-26.0, 2.9, -21.5);
-    wingLight1F.visible = false;
-    this.floor1Group.add(wingLight1F);
-    this.floor1Lights = [corridorLight1F, wingLight1F];
-
-    const corridorLight2F = new THREE.PointLight('#b8d0de', 1.15, 16, 1.5);
-    corridorLight2F.castShadow = false;
-    corridorLight2F.position.set(0, 2.95, 0);
-    corridorLight2F.visible = false;
-    this.floor2Group.add(corridorLight2F);
-
-    const wingLight2F = new THREE.PointLight('#94b8c8', 1.2, 15, 1.5);
-    wingLight2F.castShadow = false;
-    wingLight2F.position.set(26.2, 2.95, -20.5);
-    wingLight2F.visible = false;
-    this.floor2Group.add(wingLight2F);
-    this.floor2Lights = [corridorLight2F, wingLight2F];
-  }
-
-  private updateSunShadowTracking() {
-    if (!this.sunLight || !this.sunLight.castShadow) return;
-    const snapX = Math.round(this.playerPos.x * 2) * 0.5;
-    const snapZ = Math.round(this.playerPos.z * 2) * 0.5;
-    this.sunLight.target.position.set(snapX, 0, snapZ);
-    this.sunLight.position.set(
-      snapX + this.sunOffset.x,
-      this.sunOffset.y,
-      snapZ + this.sunOffset.z
-    );
-    this.sunLight.target.updateMatrixWorld();
+    const dirLight = new THREE.DirectionalLight('#ffebd2', 0.42);
+    dirLight.position.set(12, 18, -22);
+    dirLight.castShadow = false;
+    this.scene.add(dirLight);
   }
 
   private buildSchoolArchitecture() {
@@ -554,16 +537,16 @@ export class SchoolEngine {
       doorTex
     );
 
-    const woodFloorMat = new THREE.MeshLambertMaterial({ map: woodTex });
-    const wingFloorMat = new THREE.MeshLambertMaterial({ map: wingWoodTex });
-    const roomFloorMat = new THREE.MeshLambertMaterial({ map: roomWoodTex });
-    const stoneFloorMat = new THREE.MeshLambertMaterial({ map: stoneTex });
-    const bathFloorMat = new THREE.MeshLambertMaterial({ map: bathTileTex });
-    const wallLongMat = new THREE.MeshLambertMaterial({ map: wallTex });
-    const wallShortMat = new THREE.MeshLambertMaterial({ map: shortWallTex });
-    const ceilingMat = new THREE.MeshLambertMaterial({ map: ceilingTex });
-    const cedarTimberMat = new THREE.MeshLambertMaterial({ color: '#2b2b22' });
-    const slidingDoorMat = new THREE.MeshLambertMaterial({ map: doorTex });
+    const woodFloorMat = this.getCachedLambertMaterial('wood_floor', { map: woodTex });
+    const wingFloorMat = this.getCachedLambertMaterial('wing_floor', { map: wingWoodTex });
+    const roomFloorMat = this.getCachedLambertMaterial('room_floor', { map: roomWoodTex });
+    const stoneFloorMat = this.getCachedLambertMaterial('stone_floor', { map: stoneTex });
+    const bathFloorMat = this.getCachedLambertMaterial('bath_floor', { map: bathTileTex });
+    const wallLongMat = this.getCachedLambertMaterial('wall_long', { map: wallTex });
+    const wallShortMat = this.getCachedLambertMaterial('wall_short', { map: shortWallTex });
+    const ceilingMat = this.getCachedLambertMaterial('ceiling', { map: ceilingTex });
+    const cedarTimberMat = this.getCachedLambertMaterial('cedar_timber', { color: '#2b2b22' });
+    const slidingDoorMat = this.getCachedLambertMaterial('sliding_door', { map: doorTex });
 
     this.scene.add(this.floor1Group);
     this.scene.add(this.floor2Group);
@@ -722,8 +705,8 @@ export class SchoolEngine {
       this.addGlassEntranceWall(group, 0, 7.6, 11.2, wallH, mats.cedarTimberMat);
 
       // 3 Traditional Getabako Shoe-Locker Islands creating the 4 aisles on Map 1
-      const lockerMat = new THREE.MeshLambertMaterial({ map: mats.lockerTex });
-      const lockerTopMat = new THREE.MeshLambertMaterial({ color: '#2b241b' });
+      const lockerMat = this.getCachedLambertMaterial('locker_body', { map: mats.lockerTex });
+      const lockerTopMat = this.getCachedLambertMaterial('locker_top', { color: '#2b241b' });
       const bodyW = 1.1;
       const bodyH = 1.75;
       const bodyD = 3.4;
@@ -983,10 +966,10 @@ export class SchoolEngine {
     const entrance = new THREE.Group();
     entrance.position.set(x, 0, z);
 
-    const glassMat = new THREE.MeshLambertMaterial({
+    const glassMat = this.getCachedLambertMaterial('entrance_glass', {
       color: '#9fb8b4',
-      emissive: '#38bdf8',
-      emissiveIntensity: 0.14,
+      emissive: '#589fc4',
+      emissiveIntensity: 0.34,
       transparent: true,
       opacity: 0.48,
       depthWrite: false,
@@ -1056,13 +1039,13 @@ export class SchoolEngine {
     transom.castShadow = shadowsOn;
     winGroup.add(transom);
 
-    // Vidrio translúcido envejecido con leve tinte cielo/crepúsculo frío
-    const skyMat = new THREE.MeshLambertMaterial({
-      color: '#9fb8b4',
-      emissive: '#475569',
-      emissiveIntensity: 0.24,
+    // Vidrio translúcido envejecido con emisión sutil para guiar la vista en el pasillo sin PointLights
+    const skyMat = this.getCachedLambertMaterial('corridor_window_glass', {
+      color: '#a8c2c0',
+      emissive: '#6488a8',
+      emissiveIntensity: 0.48,
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.44,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
@@ -1182,6 +1165,7 @@ export class SchoolEngine {
     doorGroup.add(signBoard);
 
     if (isDestinationDoor) {
+      doorGroup.userData.noMerge = true;
       this.destDoorGroup = doorGroup;
       this.destDoorPanel = panel;
 
@@ -1285,8 +1269,8 @@ export class SchoolEngine {
     const shadowsOn = this.shadowsEnabled();
 
     // Materiales coherentes en madera oscura envejecida (sin caras coplanares ni Z-fighting)
-    const riserMat = new THREE.MeshLambertMaterial({ color: '#241f18' });
-    const nosingMat = new THREE.MeshLambertMaterial({
+    const riserMat = this.getCachedLambertMaterial('stair_riser', { color: '#241f18' });
+    const nosingMat = this.getCachedLambertMaterial('stair_nosing', {
       color: '#342b21',
       polygonOffset: true,
       polygonOffsetFactor: -1,
@@ -1673,10 +1657,10 @@ export class SchoolEngine {
       const stairWinW = 1.76;
       const stairWinH = 2.09;
       const stairWinY = 5.6;
-      const winGlassMat = new THREE.MeshLambertMaterial({
-        color: '#8faab0',
-        emissive: '#3e5c69',
-        emissiveIntensity: 0.36,
+      const winGlassMat = this.getCachedLambertMaterial('stair_window_glass', {
+        color: '#9cb8be',
+        emissive: '#5a8299',
+        emissiveIntensity: 0.55,
         transparent: true,
         opacity: 0.72,
       });
@@ -1723,7 +1707,9 @@ export class SchoolEngine {
       const slopeAngle = Math.atan2(totalRise, totalRun);
 
       // Cierre inferior del hueco de escalera (y = -2.60 .. -0.004) separado de muros superiores
-      const shaftLowerWallMat = new THREE.MeshLambertMaterial({ color: '#4e5850' });
+      const shaftLowerWallMat = this.getCachedLambertMaterial('shaft_lower_wall', {
+        color: '#4e5850',
+      });
 
       const shaftLeft = new THREE.Mesh(new THREE.BoxGeometry(0.24, 2.59, 5.5), shaftLowerWallMat);
       shaftLeft.position.set(-1.7, -1.3, 5.05);
@@ -1857,13 +1843,13 @@ export class SchoolEngine {
     frame.userData.colliderKind = 'furniture';
     boardGroup.add(frame);
 
-    const corkMat = new THREE.MeshLambertMaterial({ color: '#9c6f44' });
+    const corkMat = this.getCachedLambertMaterial('cork_board', { color: '#9c6f44' });
     const cork = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 1.15), corkMat);
     cork.position.set(0, 1.65, 0.06);
     cork.userData.noCollision = true;
     boardGroup.add(cork);
 
-    const paperMat = new THREE.MeshLambertMaterial({ color: '#faf6ee' });
+    const paperMat = this.getCachedLambertMaterial('board_paper', { color: '#faf6ee' });
     [-0.6, 0, 0.62].forEach((px, idx) => {
       const sheet = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.62), paperMat);
       sheet.position.set(px, 1.68 + (idx % 2) * 0.05, 0.07);
@@ -1877,8 +1863,8 @@ export class SchoolEngine {
     const closetGroup = new THREE.Group();
     closetGroup.position.set(-24.5, 0, -23.95);
 
-    const cabinetMat = new THREE.MeshLambertMaterial({ color: '#583922' });
-    const brassMat = new THREE.MeshLambertMaterial({ color: '#d97706' });
+    const cabinetMat = this.getCachedLambertMaterial('closet_cabinet', { color: '#583922' });
+    const brassMat = this.getCachedLambertMaterial('brass_handle', { color: '#d97706' });
 
     const carcass = new THREE.Mesh(new THREE.BoxGeometry(1.75, 2.35, 0.78), cabinetMat);
     carcass.position.y = 1.175;
@@ -1894,6 +1880,7 @@ export class SchoolEngine {
     this.closetDoorPivot = new THREE.Group();
     this.closetDoorPivot.position.set(0.82, 1.175, 0.4);
     this.closetDoorPivot.userData.noCollision = true;
+    this.closetDoorPivot.userData.noMerge = true;
     const rightDoor = new THREE.Mesh(new THREE.BoxGeometry(0.82, 2.2, 0.06), cabinetMat);
     rightDoor.position.set(-0.41, 0, 0);
     this.closetDoorPivot.add(rightDoor);
@@ -1904,7 +1891,7 @@ export class SchoolEngine {
     closetGroup.add(this.closetDoorPivot);
 
     // Mop bucket & broom beside closet
-    const bucketMat = new THREE.MeshLambertMaterial({ color: '#2563eb' });
+    const bucketMat = this.getCachedLambertMaterial('mop_bucket', { color: '#2563eb' });
     const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.19, 0.38, 16), bucketMat);
     bucket.position.set(-1.25, 0.19, 0.2);
     bucket.userData.colliderKind = 'furniture';
@@ -1955,11 +1942,13 @@ export class SchoolEngine {
     blockWallTexCentral.needsUpdate = true;
     this.sharedTextures.push(blockWallTex, blockWallTexSide, blockWallTexCentral);
 
-    const concreteWallMat = new THREE.MeshLambertMaterial({ map: blockWallTex });
-    const concreteWallSideMat = new THREE.MeshLambertMaterial({ map: blockWallTexSide });
-    const concreteWallCentralMat = new THREE.MeshLambertMaterial({ map: blockWallTexCentral });
-    const copingMat = new THREE.MeshLambertMaterial({ color: '#2d3233' });
-    const ironFenceMat = new THREE.MeshLambertMaterial({ color: '#1b2024' });
+    const concreteWallMat = this.getCachedLambertMaterial('concrete_wall', { map: blockWallTex });
+    const concreteWallSideMat = this.getCachedLambertMaterial('concrete_wall_side', { map: blockWallTexSide });
+    const concreteWallCentralMat = this.getCachedLambertMaterial('concrete_wall_central', {
+      map: blockWallTexCentral,
+    });
+    const copingMat = this.getCachedLambertMaterial('concrete_coping', { color: '#2d3233' });
+    const ironFenceMat = this.getCachedLambertMaterial('iron_fence', { color: '#1b2024' });
 
     const addSchoolPerimeterSpan = (
       targetGroup: THREE.Group,
@@ -2037,7 +2026,7 @@ export class SchoolEngine {
     addSchoolPerimeterSpan(this.floor1Group, -23.7, -25.2, 21.8, -25.2, concreteWallCentralMat);
 
     // Setos densos oscuros pegados a los muros del aparcabicicletas para ocultar bordes duros
-    const hedgeMat = new THREE.MeshLambertMaterial({ color: '#1d281f' });
+    const hedgeMat = this.getCachedLambertMaterial('hedge_foliage', { color: '#1d281f' });
     const bushGeo = new THREE.DodecahedronGeometry(0.68, 1);
     const bushPositions: Array<[number, number, number]> = [
       // Base oeste del aparcabicicletas
@@ -2073,8 +2062,8 @@ export class SchoolEngine {
     });
 
     // Árboles oscuros más allá de las rejas (patio aparcabicicletas + patio central) para siluetas contra el cielo
-    const trunkMat = new THREE.MeshLambertMaterial({ color: '#241c16' });
-    const foliageMat = new THREE.MeshLambertMaterial({ color: '#243025' });
+    const trunkMat = this.getCachedLambertMaterial('tree_trunk', { color: '#241c16' });
+    const foliageMat = this.getCachedLambertMaterial('tree_foliage', { color: '#243025' });
     const addCourtyardTree = (targetGroup: THREE.Group, tx: number, ty: number, tz: number) => {
       const tree = new THREE.Group();
       tree.position.set(tx, ty, tz);
@@ -2122,8 +2111,8 @@ export class SchoolEngine {
     // Cobertizo metálico envejecido + 4 bicicletas con pintura apagada atmosférica
     const shelter = new THREE.Group();
     shelter.position.set(27.5, 0, -22.4);
-    const steelMat = new THREE.MeshLambertMaterial({ color: '#4e5963' });
-    const roofMat = new THREE.MeshLambertMaterial({
+    const steelMat = this.getCachedLambertMaterial('shelter_steel', { color: '#4e5963' });
+    const roofMat = this.getCachedLambertMaterial('shelter_roof', {
       color: '#6f8c96',
       transparent: true,
       opacity: 0.36,
@@ -2152,7 +2141,7 @@ export class SchoolEngine {
     shelter.add(shelterRoof);
 
     // 4 Bicicletas compuestas en tonos desgastados coherentes con la paleta nocturna
-    const tireMat = new THREE.MeshLambertMaterial({ color: '#161514' });
+    const tireMat = this.getCachedLambertMaterial('bike_tire', { color: '#161514' });
     const frameColors = ['#6e1e24', '#1e3a54', '#6e541c', '#1f3d2b'];
     [-1.35, -0.45, 0.45, 1.35].forEach((bx, idx) => {
       const bike = this.createCompositeBicycle(frameColors[idx], steelMat, tireMat);
@@ -2193,6 +2182,7 @@ export class SchoolEngine {
     // 4. Pasillo Aula 1B — Campanita de Viento Japonesa (Fūrin) en (-9.2, 0, -1.2)
     this.windChimeGroup = new THREE.Group();
     this.windChimeGroup.position.set(-9.2, 3.05, -1.2);
+    this.windChimeGroup.userData.noMerge = true;
 
     const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.65, 6), timberMat);
     cord.position.y = 0.2;
@@ -2230,7 +2220,7 @@ export class SchoolEngine {
   ): THREE.Group {
     const shadowsOn = this.shadowsEnabled();
     const bike = new THREE.Group();
-    const paintMat = new THREE.MeshLambertMaterial({ color: colorHex });
+    const paintMat = this.getCachedLambertMaterial(`bike_paint_${colorHex}`, { color: colorHex });
 
     const wheelGeo = new THREE.TorusGeometry(0.32, 0.035, 10, 22);
     const backWheel = new THREE.Mesh(wheelGeo, tireMat);
@@ -2274,7 +2264,7 @@ export class SchoolEngine {
   private buildFloor2Props(_maxAniso: number, timberMat: THREE.Material) {
     // 1. Baños 2F (East Room: x: 22.0..30.0, z: -24.0..-15.0)
     // Stalls + Washbasins + Hanako's WebRTC / Light-Reactive Mirror at (29.75, 1.55, -21.2)
-    const stallMat = new THREE.MeshLambertMaterial({ color: '#d6d3d1' });
+    const stallMat = this.getCachedLambertMaterial('bath_stall', { color: '#d6d3d1' });
     for (let sz = -23.0; sz <= -19.4; sz += 1.75) {
       const partition = new THREE.Mesh(new THREE.BoxGeometry(1.7, 2.15, 0.06), stallMat);
       partition.position.set(22.9, 1.15, sz);
@@ -2285,7 +2275,7 @@ export class SchoolEngine {
     // Countertop & Sinks along East Wall near objeto_hanako (27.6, 0, -21.2)
     const counter = new THREE.Mesh(
       new THREE.BoxGeometry(0.75, 0.85, 3.6),
-      new THREE.MeshLambertMaterial({ color: '#e7e5e4' })
+      this.getCachedLambertMaterial('bath_counter', { color: '#e7e5e4' })
     );
     counter.position.set(29.45, 0.425, -21.2);
     counter.userData.colliderKind = 'furniture';
@@ -2307,6 +2297,7 @@ export class SchoolEngine {
     });
     const mirrorGlass = new THREE.Mesh(new THREE.PlaneGeometry(2.18, 1.24), this.hanakoMirrorMat);
     mirrorGlass.position.z = 0.05;
+    mirrorGlass.userData.noMerge = true;
     mirrorGroup.add(mirrorGlass);
 
     this.hanakoSealRing = new THREE.Mesh(
@@ -2319,6 +2310,7 @@ export class SchoolEngine {
       })
     );
     this.hanakoSealRing.position.z = 0.06;
+    this.hanakoSealRing.userData.noMerge = true;
     mirrorGroup.add(this.hanakoSealRing);
     this.floor2Group.add(mirrorGroup);
 
@@ -2326,13 +2318,13 @@ export class SchoolEngine {
     // Chalkboard + Teacher Desks + Gyroscope-Reactive Astrolabe Sealed Compartment at (-24.5, 0, -23.4)
     const chalkboard = new THREE.Mesh(
       new THREE.BoxGeometry(3.8, 1.45, 0.07),
-      new THREE.MeshLambertMaterial({ color: '#14532d' })
+      this.getCachedLambertMaterial('chalkboard', { color: '#14532d' })
     );
     chalkboard.position.set(-26.0, 1.85, -24.52);
     chalkboard.userData.colliderKind = 'furniture';
     this.floor2Group.add(chalkboard);
 
-    const deskMat = new THREE.MeshLambertMaterial({ color: '#5c3d24' });
+    const deskMat = this.getCachedLambertMaterial('teacher_desk', { color: '#5c3d24' });
     const mainDesk = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.82, 1.0), deskMat);
     mainDesk.position.set(-24.5, 0.41, -23.45);
     mainDesk.userData.colliderKind = 'furniture';
@@ -2348,9 +2340,9 @@ export class SchoolEngine {
     cofferBase.position.set(-24.5, 0.84, -23.45);
     cofferBase.userData.noCollision = true;
 
-    const lacquerMat = new THREE.MeshLambertMaterial({ color: '#3b1612' });
-    const oxidizedIronMat = new THREE.MeshLambertMaterial({ color: '#574438' });
-    const agedBrassMat = new THREE.MeshLambertMaterial({ color: '#a17c42' });
+    const lacquerMat = this.getCachedLambertMaterial('coffer_lacquer', { color: '#3b1612' });
+    const oxidizedIronMat = this.getCachedLambertMaterial('oxidized_iron', { color: '#574438' });
+    const agedBrassMat = this.getCachedLambertMaterial('aged_brass', { color: '#a17c42' });
 
     const boxBody = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.22, 0.52), lacquerMat);
     boxBody.position.y = 0.11;
@@ -2358,6 +2350,7 @@ export class SchoolEngine {
 
     this.astrolabeLidPivot = new THREE.Group();
     this.astrolabeLidPivot.position.set(0, 0.22, -0.25);
+    this.astrolabeLidPivot.userData.noMerge = true;
     const lid = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.06, 0.54), lacquerMat);
     lid.position.set(0, 0.03, 0.25);
     this.astrolabeLidPivot.add(lid);
@@ -2386,6 +2379,143 @@ export class SchoolEngine {
     this.astrolabeLidPivot.add(this.astrolabeOuterGimbal);
     cofferBase.add(this.astrolabeLidPivot);
     this.floor2Group.add(cofferBase);
+  }
+
+  private mergeStaticFloorGeometries(floorGroup: THREE.Group) {
+    floorGroup.updateMatrixWorld(true);
+    _invFloorWorld.copy(floorGroup.matrixWorld).invert();
+
+    interface MergeBucket {
+      material: THREE.Material;
+      renderOrder: number;
+      hasUv: boolean;
+      meshes: THREE.Mesh[];
+    }
+
+    const buckets = new Map<string, MergeBucket>();
+
+    const collectStaticMeshes = (obj: THREE.Object3D) => {
+      if (obj.userData.noMerge || obj.userData.isInteractiveMarker) return;
+      if ((obj as THREE.InstancedMesh).isInstancedMesh) return;
+
+      if ((obj as THREE.Mesh).isMesh) {
+        const mesh = obj as THREE.Mesh;
+        if (!Array.isArray(mesh.material) && mesh.material && mesh.geometry?.attributes?.position) {
+          const hasUv = Boolean(mesh.geometry.attributes.uv);
+          const key = `${mesh.material.uuid}:${mesh.renderOrder}:${hasUv ? 1 : 0}`;
+          let bucket = buckets.get(key);
+          if (!bucket) {
+            bucket = {
+              material: mesh.material,
+              renderOrder: mesh.renderOrder,
+              hasUv,
+              meshes: [],
+            };
+            buckets.set(key, bucket);
+          }
+          bucket.meshes.push(mesh);
+        }
+        return;
+      }
+
+      for (let i = 0; i < obj.children.length; i++) {
+        collectStaticMeshes(obj.children[i]);
+      }
+    };
+
+    collectStaticMeshes(floorGroup);
+
+    const candidateDisposeGeos = new Set<THREE.BufferGeometry>();
+
+    buckets.forEach((bucket) => {
+      if (bucket.meshes.length <= 1) return;
+
+      const geomsToMerge: THREE.BufferGeometry[] = [];
+      for (let i = 0; i < bucket.meshes.length; i++) {
+        const mesh = bucket.meshes[i];
+        const cloned = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+
+        if (!cloned.attributes.normal) {
+          cloned.computeVertexNormals();
+        }
+        // Normaliza atributos para evitar fallos en mergeGeometries entre primitivas mixtas
+        for (const attrName of Object.keys(cloned.attributes)) {
+          if (attrName !== 'position' && attrName !== 'normal' && !(bucket.hasUv && attrName === 'uv')) {
+            cloned.deleteAttribute(attrName);
+          }
+        }
+
+        _relMatrix.copy(_invFloorWorld).multiply(mesh.matrixWorld);
+        cloned.applyMatrix4(_relMatrix);
+        geomsToMerge.push(cloned);
+      }
+
+      const merged = BufferGeometryUtils.mergeGeometries(geomsToMerge, false);
+      for (let i = 0; i < geomsToMerge.length; i++) {
+        geomsToMerge[i].dispose();
+      }
+      if (!merged) return;
+
+      merged.computeBoundingBox();
+      merged.computeBoundingSphere();
+
+      for (let i = 0; i < bucket.meshes.length; i++) {
+        const mesh = bucket.meshes[i];
+        candidateDisposeGeos.add(mesh.geometry);
+        mesh.parent?.remove(mesh);
+      }
+
+      const mergedMesh = new THREE.Mesh(merged, bucket.material);
+      mergedMesh.castShadow = false;
+      mergedMesh.receiveShadow = false;
+      mergedMesh.renderOrder = bucket.renderOrder;
+      mergedMesh.matrixAutoUpdate = false;
+      mergedMesh.updateMatrix();
+      floorGroup.add(mergedMesh);
+    });
+
+    // Elimina grupos vacíos intermedios tras fusionar sus mallas estáticas
+    const pruneEmptyGroups = (obj: THREE.Object3D) => {
+      for (let i = obj.children.length - 1; i >= 0; i--) {
+        const child = obj.children[i];
+        if (!child.userData.noMerge && !child.userData.isInteractiveMarker && !(child as THREE.Mesh).isMesh && !(child as THREE.InstancedMesh).isInstancedMesh) {
+          pruneEmptyGroups(child);
+          if (child.children.length === 0) {
+            obj.remove(child);
+          }
+        }
+      }
+    };
+    pruneEmptyGroups(floorGroup);
+
+    // Libera solo geometrías reemplazadas que ya no estén referenciadas en la escena
+    const activeGeos = new Set<THREE.BufferGeometry>();
+    this.scene.traverse((obj) => {
+      if ((obj as THREE.Mesh).isMesh) {
+        const g = (obj as THREE.Mesh).geometry;
+        if (g) activeGeos.add(g);
+      }
+    });
+    candidateDisposeGeos.forEach((geo) => {
+      if (geo !== this.sharedLampGeo && geo !== this.sharedHaloGeo && !activeGeos.has(geo)) {
+        geo.dispose();
+      }
+    });
+  }
+
+  private freezeStaticMatrices(obj: THREE.Object3D) {
+    if (obj.userData.noMerge || obj.userData.isInteractiveMarker) {
+      obj.updateMatrix();
+      return;
+    }
+    obj.updateMatrix();
+    obj.matrixAutoUpdate = false;
+    for (let i = 0; i < obj.children.length; i++) {
+      this.freezeStaticMatrices(obj.children[i]);
+    }
+    if (obj === this.floor1Group || obj === this.floor2Group) {
+      obj.updateMatrixWorld(true);
+    }
   }
 
   private buildMarkers() {
@@ -2530,7 +2660,7 @@ export class SchoolEngine {
 
         const base = new THREE.Mesh(
           new THREE.CylinderGeometry(0.36, 0.42, 0.14, 16),
-          new THREE.MeshLambertMaterial({ color: '#3b2514' })
+          this.getCachedLambertMaterial('marker_person_base', { color: '#3b2514' })
         );
         base.position.y = 0.07;
         base.castShadow = false;
@@ -2539,7 +2669,7 @@ export class SchoolEngine {
 
         const diamond = new THREE.Mesh(
           new THREE.OctahedronGeometry(0.14, 0),
-          new THREE.MeshLambertMaterial({
+          this.getCachedLambertMaterial('marker_person_diamond', {
             color: '#38bdf8',
             emissive: '#0284c7',
             emissiveIntensity: 0.26,
@@ -2552,7 +2682,7 @@ export class SchoolEngine {
       } else if (marker.kind === 'objeto') {
         const gem = new THREE.Mesh(
           new THREE.OctahedronGeometry(0.24, 0),
-          new THREE.MeshLambertMaterial({
+          this.getCachedLambertMaterial('marker_obj_gem', {
             color: '#f43f5e',
             emissive: '#e11d48',
             emissiveIntensity: 0.26,
@@ -2565,7 +2695,7 @@ export class SchoolEngine {
 
         const halo = new THREE.Mesh(
           new THREE.TorusGeometry(0.34, 0.02, 10, 28),
-          new THREE.MeshLambertMaterial({ color: '#fda4af' })
+          this.getCachedLambertMaterial('marker_obj_halo', { color: '#fda4af' })
         );
         halo.position.y = 1.15;
         halo.rotation.x = Math.PI / 3;
@@ -2595,6 +2725,14 @@ export class SchoolEngine {
       this.hitProxies.push(hitProxy);
 
       const targetFloorGroup = marker.floor === 1 ? this.floor1Group : this.floor2Group;
+      root.updateMatrix();
+      root.matrixAutoUpdate = false;
+      shadowDisk.updateMatrix();
+      shadowDisk.matrixAutoUpdate = false;
+      ringMesh.updateMatrix();
+      ringMesh.matrixAutoUpdate = false;
+      hitProxy.updateMatrix();
+      hitProxy.matrixAutoUpdate = false;
       targetFloorGroup.add(root);
 
       const visRecord: MarkerVisual = {
@@ -2682,75 +2820,6 @@ export class SchoolEngine {
     }
   }
 
-  private updateDynamicFloorLighting() {
-    const px = this.playerPos.x;
-    const pz = this.playerPos.z;
-    const inNorthWingRoom = pz < -13.5;
-
-    if (this.currentFloor === 1 && this.floor1Lights.length >= 2) {
-      const corridorLight = this.floor1Lights[0];
-      const wingLight = this.floor1Lights[1];
-
-      corridorLight.visible = !inNorthWingRoom;
-      wingLight.visible = inNorthWingRoom;
-
-      if (!inNorthWingRoom) {
-        if (pz > 2.2) {
-          corridorLight.position.set(0, 2.95, 4.6);
-          corridorLight.color.copy(_colorCorridor);
-        } else if (pz < -5.5 && px < -22) {
-          corridorLight.position.set(-26.0, 2.95, pz);
-          corridorLight.color.copy(_colorCorridor);
-        } else if (pz < -5.5 && px > 22) {
-          corridorLight.position.set(26.0, 2.95, pz);
-          corridorLight.color.copy(_colorCorridor);
-        } else {
-          corridorLight.position.set(THREE.MathUtils.clamp(Math.round(px * 0.5) * 2, -25, 25), 2.95, 0);
-          corridorLight.color.copy(_colorCorridor);
-        }
-      } else if (px >= 0) {
-        wingLight.position.set(26.2, 3.6, -20.8);
-        wingLight.color.copy(_colorWing1FEast);
-        wingLight.intensity = 1.15;
-        wingLight.distance = 18;
-      } else {
-        wingLight.position.set(-26.0, 2.9, -21.5);
-        wingLight.color.copy(_colorWing1FWest);
-        wingLight.intensity = 1.25;
-        wingLight.distance = 15;
-      }
-    } else if (this.currentFloor === 2 && this.floor2Lights.length >= 2) {
-      const corridorLight = this.floor2Lights[0];
-      const wingLight = this.floor2Lights[1];
-
-      corridorLight.visible = !inNorthWingRoom;
-      wingLight.visible = inNorthWingRoom;
-
-      if (!inNorthWingRoom) {
-        if (pz < -5.5 && px < -22) {
-          corridorLight.position.set(-26.0, 2.95, pz);
-          corridorLight.color.copy(_colorCorridor);
-        } else if (pz < -5.5 && px > 22) {
-          corridorLight.position.set(26.0, 2.95, pz);
-          corridorLight.color.copy(_colorCorridor);
-        } else {
-          corridorLight.position.set(THREE.MathUtils.clamp(Math.round(px * 0.5) * 2, -25, 25), 2.95, 0);
-          corridorLight.color.copy(_colorCorridor);
-        }
-      } else if (px >= 0) {
-        wingLight.position.set(26.2, 2.95, -20.5);
-        wingLight.color.copy(_colorWing2FEast);
-        wingLight.intensity = 1.2;
-        wingLight.distance = 15;
-      } else {
-        wingLight.position.set(-25.8, 2.95, -21.5);
-        wingLight.color.copy(_colorWing2FWest);
-        wingLight.intensity = 1.25;
-        wingLight.distance = 15;
-      }
-    }
-  }
-
   public setFloor(
     floor: FloorNumber,
     spawnPos?: [number, number, number],
@@ -2760,14 +2829,6 @@ export class SchoolEngine {
     this.currentFloor = floor;
     this.floor1Group.visible = floor === 1;
     this.floor2Group.visible = floor === 2;
-
-    // Apaga todas las luces del piso inactivo (las activas se seleccionan en updateDynamicFloorLighting)
-    for (let i = 0; i < this.floor1Lights.length; i++) {
-      this.floor1Lights[i].visible = false;
-    }
-    for (let i = 0; i < this.floor2Lights.length; i++) {
-      this.floor2Lights[i].visible = false;
-    }
 
     if (spawnPos) {
       this.playerPos.set(spawnPos[0], 1.65, spawnPos[2]);
@@ -2802,8 +2863,6 @@ export class SchoolEngine {
 
     this.lastNearbyId = null;
     this.callbacks.onNearbyMarkerChange(null);
-    this.updateDynamicFloorLighting();
-    this.updateSunShadowTracking();
     this.updateZoneAndProximity();
     this.updateReactiveWorldProps(0.016, this.clock.elapsedTime);
 
@@ -3342,11 +3401,18 @@ export class SchoolEngine {
     const elapsed = this.clock.elapsedTime;
 
     if (!this.isPaused && !this.externallyPaused && !document.hidden) {
-      if (this.usePostProcessing) {
-        if (delta > 0.025) {
+      if (this.usePostProcessing || this.renderScale > 0.85) {
+        if (delta > 0.024) {
           this.slowFrameCount++;
-          if (this.slowFrameCount >= 45) {
+          if (this.slowFrameCount >= 40) {
+            this.slowFrameCount = 0;
             this.downgradePostProcessing();
+            if (this.renderScale > 0.85) {
+              this.renderScale = 0.85;
+              const width = this.container.clientWidth || window.innerWidth;
+              const height = this.container.clientHeight || window.innerHeight;
+              this.applyRendererResolution(width, height);
+            }
           }
         } else {
           this.slowFrameCount = Math.max(0, this.slowFrameCount - 1);
@@ -3357,8 +3423,6 @@ export class SchoolEngine {
         this.currentFloor === 2 && this.playerPos.x > 18 && this.playerPos.z < -12;
       sensorService.update(delta, elapsed, shouldUpdateMirror);
       this.updateMovement(delta);
-      this.updateDynamicFloorLighting();
-      this.updateSunShadowTracking();
       this.updateZoneAndProximity();
       this.updateReactiveWorldProps(delta, elapsed);
 
@@ -3404,21 +3468,9 @@ export class SchoolEngine {
     if (this.disposed) return;
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
-    const pixelRatio = this.getOptimalPixelRatio();
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(pixelRatio);
-    this.renderer.setSize(width, height);
-    if (this.usePostProcessing && this.composer) {
-      this.composer.setPixelRatio(pixelRatio);
-      this.composer.setSize(width, height);
-      if (this.bloomPass) {
-        this.bloomPass.setSize(
-          Math.max(1, Math.floor(width * this.bloomResScale)),
-          Math.max(1, Math.floor(height * this.bloomResScale))
-        );
-      }
-    }
+    this.applyRendererResolution(width, height);
   };
 
   private handleVisibility = () => {
@@ -3514,6 +3566,8 @@ export class SchoolEngine {
 
     if (this.sharedObjLockedRingMat) uniqueMaterials.add(this.sharedObjLockedRingMat);
     if (this.sharedObjReadyRingMat) uniqueMaterials.add(this.sharedObjReadyRingMat);
+    this.materialCache.forEach((m) => uniqueMaterials.add(m));
+    this.materialCache.clear();
 
     uniqueGeometries.forEach((g) => g.dispose());
     uniqueMaterials.forEach((m) => m.dispose());
