@@ -9,19 +9,23 @@ export const TITLE_LOGO_IMAGE_URL = '/assets/aistudio/Logo_Blanco_8a054557.png';
 interface TitleScreenProps {
   isMuted: boolean;
   onToggleMute: (nextMuted: boolean) => void;
+  onRequestPermissions?: () => Promise<unknown>;
   onComplete: () => void;
 }
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({
   isMuted,
   onToggleMute,
+  onRequestPermissions,
   onComplete,
 }) => {
-  const [phase, setPhase] = useState<'entering' | 'ready' | 'exiting'>('entering');
+  const [phase, setPhase] = useState<'entering' | 'ready' | 'requesting' | 'exiting'>('entering');
   const [bgLoadError, setBgLoadError] = useState(false);
 
   const audioControllerRef = useRef<TitleAudioController | null>(null);
   const exitStartedRef = useRef(false);
+  const exitTimerRef = useRef<number | null>(null);
+  const isMountedRef = useRef(true);
 
   // Inicia el fade-in desde negro (1.8s) y reproduce title_screen.mp3 al instante en volumen 1.0
   useEffect(() => {
@@ -39,8 +43,13 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 
     void controller.start();
 
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       window.cancelAnimationFrame(rafId);
+      if (exitTimerRef.current !== null) {
+        window.clearTimeout(exitTimerRef.current);
+      }
       controller.dispose();
       audioControllerRef.current = null;
     };
@@ -52,11 +61,22 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
     audioControllerRef.current?.setMuted(isMuted);
   }, [isMuted]);
 
-  const triggerStart = useCallback(() => {
+  const triggerStart = useCallback(async () => {
     if (exitStartedRef.current) return;
     exitStartedRef.current = true;
 
+    soundEngine.init();
     soundEngine.playConfirm();
+    setPhase('requesting');
+
+    // Solicita permisos de cámara, micrófono y movimiento dentro del gesto directo del usuario
+    try {
+      await onRequestPermissions?.();
+    } catch {
+      // Continuar con modo alternativo si el usuario rechaza o no dispone de hardware
+    }
+
+    if (!isMountedRef.current) return;
     setPhase('exiting');
 
     // Fade-out sincronizado: pantalla a negro (1.5s) y música a 0 -> pause()
@@ -64,14 +84,14 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       ? audioControllerRef.current.fadeOutAndStop(1500)
       : Promise.resolve();
 
-    const visualTimer = window.setTimeout(() => {
+    exitTimerRef.current = window.setTimeout(() => {
       void audioPromise.finally(() => {
-        onComplete();
+        if (isMountedRef.current) {
+          onComplete();
+        }
       });
     }, 1520);
-
-    return () => window.clearTimeout(visualTimer);
-  }, [onComplete]);
+  }, [onComplete, onRequestPermissions]);
 
   // Permite iniciar presionando Enter o Espacio desde cualquier parte de la pantalla
   useEffect(() => {
@@ -84,7 +104,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           return;
         }
         e.preventDefault();
-        triggerStart();
+        void triggerStart();
       }
     };
 
@@ -167,13 +187,13 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           id="btn-start-game"
           type="button"
           data-no-confirm-sfx="true"
-          disabled={phase === 'exiting'}
-          onClick={triggerStart}
+          disabled={phase === 'requesting' || phase === 'exiting'}
+          onClick={() => void triggerStart()}
           className="title-start-btn"
         >
           <span className="title-start-beam" aria-hidden="true" />
           <span className="title-start-line" aria-hidden="true" />
-          <span>COMENZAR</span>
+          <span>{phase === 'requesting' ? 'INICIANDO...' : 'COMENZAR'}</span>
           <span className="title-start-line title-start-line--right" aria-hidden="true" />
         </button>
       </div>

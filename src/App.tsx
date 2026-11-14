@@ -19,7 +19,7 @@ import {
   resolveMarkerDialogue,
 } from './data/gameContent';
 import { resolveAllowedFloorNotice } from './data/locationZones';
-import { sensorService } from './services/sensorService';
+import { requestDevicePermissions } from './services/sensorService';
 import { soundEngine } from './services/soundEngine';
 import { ejecutarTransicionEscalera } from './services/stairTransitionController';
 import { SchoolEngine } from './three/SchoolEngine';
@@ -374,7 +374,6 @@ export default function App() {
 
   const handlePrepareMainScene = useCallback(() => {
     soundEngine.init();
-    void sensorService.requestMotionOnly();
   }, []);
 
   const handleCompleteIntroLore = useCallback(() => {
@@ -625,11 +624,20 @@ export default function App() {
       {/* Polaroid revelada del espejo del baño (permanece visible sobre el textbox del pensamiento y permite cerrarla luego) */}
       {inspectingPolaroid && (
         <div
+          onClick={() => {
+            if (!activeDialogue) {
+              soundEngine.playConfirm();
+              setInspectingPolaroid(false);
+            }
+          }}
           className={`pointer-events-auto fixed inset-0 z-[25] flex flex-col items-center justify-center bg-[#070a12]/72 backdrop-blur-sm px-4 transition-all ${
             activeDialogue ? 'pb-48 sm:pb-56' : 'pb-6'
           }`}
         >
-          <div className="relative flex flex-col items-center">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative flex flex-col items-center"
+          >
             {!activeDialogue && (
               <button
                 type="button"
@@ -735,6 +743,7 @@ export default function App() {
             setIsMuted(next);
             soundEngine.setMuted(next);
           }}
+          onRequestPermissions={requestDevicePermissions}
           onComplete={() => setEntryStage('intro')}
         />
       )}

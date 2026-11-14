@@ -71,14 +71,23 @@ export class SensorService {
     this.luminanceCtx = this.luminanceCanvas.getContext('2d', { willReadFrequently: true });
   }
 
-  // Startup permissions: intentionally excludes DeviceOrientationEvent.requestPermission()
+  // Solicitud unificada de permisos en el gesto directo del usuario (Title Screen -> Intro)
   async requestAllPermissions() {
-    await this.requestMotionOnly();
-    await this.requestMicrophone();
-    await this.requestCamera('environment');
+    if (this.permissionsRequested) {
+      return { ...this.permissions };
+    }
+    this.permissionsRequested = true;
+
+    const motionPromise = this.requestMotionOnly();
+    const micPromise = this.requestMicrophone();
+    const cameraPromise = this.requestCamera('environment');
     this.initAmbientLightSensor();
+
+    await Promise.allSettled([motionPromise, micPromise, cameraPromise]);
     return { ...this.permissions };
   }
+
+  private permissionsRequested = false;
 
   async requestMotionOnly(): Promise<boolean> {
     let motionGranted = false;
@@ -267,7 +276,7 @@ export class SensorService {
       }
 
       this.videoElement.srcObject = stream;
-      await this.videoElement.play();
+      await this.videoElement.play().catch(() => {});
 
       if (!this.videoTexture) {
         this.videoTexture = new THREE.VideoTexture(this.videoElement);
@@ -495,3 +504,11 @@ export class SensorService {
 }
 
 export const sensorService = new SensorService();
+
+export async function requestDevicePermissions() {
+  try {
+    return await sensorService.requestAllPermissions();
+  } catch {
+    return { ...sensorService.permissions };
+  }
+}

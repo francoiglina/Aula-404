@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Compass,
@@ -49,6 +49,10 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
       onComplete(challengeType);
     }, delayMs);
   };
+
+  const handleMirrorDeveloped = useCallback(() => {
+    onComplete('camera_mirror');
+  }, [onComplete]);
 
   useEffect(() => {
     completedRef.current = false;
@@ -319,7 +323,7 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
             )}
 
             {challengeType === 'camera_mirror' && (
-              <MirrorPolaroidChallenge onDeveloped={() => onComplete('camera_mirror')} />
+              <MirrorPolaroidChallenge onDeveloped={handleMirrorDeveloped} />
             )}
 
             {challengeType === 'karakuri_profesor' && (

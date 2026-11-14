@@ -1,258 +1,333 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 
 interface PolaroidPhotoCardProps {
-  /** Progreso del revelado químico de 0 (oscuro/neblinoso) a 1 (foto revelada) */
+  /** Progreso del revelado químico de 0 (oscuro/borroso) a 1 (foto revelada al 100%) */
   revealProgress: number;
   className?: string;
-}
-
-/**
- * Dibuja una sola vez la fotografía Polaroid perturbadora y granulada de un candado
- * japonés antiguo de anillos/espiral sobre un escritorio oscuro iluminado por flash.
- */
-function paintSpiralLockPhotograph(canvas: HTMLCanvasElement): void {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  const w = canvas.width;
-  const h = canvas.height;
-  const cx = w * 0.5;
-  const cy = h * 0.49;
-
-  // 1. Fondo de madera oscura del escritorio iluminado por un flash frío cenital
-  const bgGrad = ctx.createRadialGradient(cx * 0.94, cy * 0.92, w * 0.04, cx, cy, w * 0.72);
-  bgGrad.addColorStop(0, '#3a2c22');
-  bgGrad.addColorStop(0.36, '#1f1712');
-  bgGrad.addColorStop(0.75, '#0e0b0a');
-  bgGrad.addColorStop(1, '#040406');
-  ctx.fillStyle = bgGrad;
-  ctx.fillRect(0, 0, w, h);
-
-  // Vetas horizontales sutiles de la mesa de madera
-  ctx.save();
-  for (let y = 0; y < h; y += 6) {
-    const alpha = 0.03 + ((y * 17) % 7) * 0.008;
-    ctx.strokeStyle = `rgba(12, 8, 6, ${alpha})`;
-    ctx.lineWidth = 1 + (y % 3 === 0 ? 1 : 0);
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.bezierCurveTo(w * 0.35, y + Math.sin(y * 0.14) * 3, w * 0.7, y - Math.cos(y * 0.11) * 3, w, y + 1);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // 2. Silueta oscura de la caja lacada bajo el candado
-  ctx.save();
-  ctx.fillStyle = 'rgba(18, 8, 8, 0.92)';
-  ctx.strokeStyle = 'rgba(130, 98, 72, 0.35)';
-  ctx.lineWidth = 2;
-  const boxW = w * 0.78;
-  const boxH = h * 0.64;
-  ctx.beginPath();
-  ctx.roundRect(cx - boxW / 2, cy - boxH / 2 + 6, boxW, boxH, 10);
-  ctx.fill();
-  ctx.stroke();
-
-  // Sombra profunda debajo del candado circular
-  const dropShadow = ctx.createRadialGradient(cx + 6, cy + 12, w * 0.14, cx + 6, cy + 12, w * 0.41);
-  dropShadow.addColorStop(0, 'rgba(0, 0, 0, 0.92)');
-  dropShadow.addColorStop(0.78, 'rgba(0, 0, 0, 0.58)');
-  dropShadow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = dropShadow;
-  ctx.beginPath();
-  ctx.arc(cx + 6, cy + 12, w * 0.41, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  // 3. Candado antiguo japonés de anillos concéntricos en espiral (4 anillos + muescas desalineadas)
-  const rings = [
-    { rOuter: w * 0.32, rInner: w * 0.255, base: '#594538', highlight: '#8c6f56', notchAngle: -0.95 },
-    { rOuter: w * 0.248, rInner: w * 0.19, base: '#3d2c22', highlight: '#6c503c', notchAngle: 1.4 },
-    { rOuter: w * 0.183, rInner: w * 0.128, base: '#695333', highlight: '#9c7c4e', notchAngle: -2.1 },
-    { rOuter: w * 0.121, rInner: w * 0.068, base: '#33363b', highlight: '#6b727d', notchAngle: 0.72 },
-  ];
-
-  // Canal superior fijo (muesca maestra arriba)
-  ctx.save();
-  ctx.fillStyle = '#070607';
-  ctx.fillRect(cx - 10, cy - w * 0.355, 20, w * 0.06);
-  ctx.strokeStyle = 'rgba(186, 165, 130, 0.45)';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(cx - 10, cy - w * 0.355, 20, w * 0.06);
-  ctx.restore();
-
-  rings.forEach((ring, idx) => {
-    ctx.save();
-    // Aro principal con degradado metálico/madera oxidada
-    const rGrad = ctx.createLinearGradient(
-      cx - ring.rOuter,
-      cy - ring.rOuter,
-      cx + ring.rOuter,
-      cy + ring.rOuter
-    );
-    rGrad.addColorStop(0, ring.highlight);
-    rGrad.addColorStop(0.5, ring.base);
-    rGrad.addColorStop(1, '#151210');
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, ring.rOuter, 0, Math.PI * 2);
-    ctx.arc(cx, cy, ring.rInner, 0, Math.PI * 2, true);
-    ctx.fillStyle = rGrad;
-    ctx.fill();
-
-    // Borde oscuro entre anillos + reflejo de flash en borde superior izquierdo
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.88)';
-    ctx.lineWidth = 2.2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, ring.rOuter, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.strokeStyle = 'rgba(240, 232, 212, 0.24)';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, ring.rOuter - 1.5, Math.PI * 0.9, Math.PI * 1.65);
-    ctx.stroke();
-
-    // Marcas grabadas en espiral sobre cada anillo
-    const ticks = 12;
-    for (let t = 0; t < ticks; t++) {
-      const a = (t / ticks) * Math.PI * 2 + idx * 0.14;
-      const rA = ring.rInner + 3;
-      const rB = ring.rOuter - 3;
-      ctx.strokeStyle = 'rgba(10, 8, 7, 0.55)';
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * rA, cy + Math.sin(a) * rA);
-      ctx.lineTo(cx + Math.cos(a + 0.04) * rB, cy + Math.sin(a + 0.04) * rB);
-      ctx.stroke();
-    }
-
-    // Muesca ranurada visible de cada anillo (la que debe alinearse en el candado)
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(ring.notchAngle);
-    const notchW = 14 - idx * 1.4;
-    const notchH = ring.rOuter - ring.rInner + 4;
-    ctx.fillStyle = '#070606';
-    ctx.fillRect(-notchW / 2, -ring.rOuter - 1, notchW, notchH);
-    ctx.strokeStyle = 'rgba(214, 198, 165, 0.38)';
-    ctx.lineWidth = 1.2;
-    ctx.strokeRect(-notchW / 2, -ring.rOuter - 1, notchW, notchH);
-    ctx.restore();
-
-    ctx.restore();
-  });
-
-  // Núcleo central y pestillo trabado
-  ctx.save();
-  const coreGrad = ctx.createRadialGradient(cx - 5, cy - 5, 2, cx, cy, w * 0.068);
-  coreGrad.addColorStop(0, '#6e6459');
-  coreGrad.addColorStop(0.6, '#2a2420');
-  coreGrad.addColorStop(1, '#090808');
-  ctx.fillStyle = coreGrad;
-  ctx.beginPath();
-  ctx.arc(cx, cy, w * 0.068, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Espiral grabada al centro
-  ctx.strokeStyle = 'rgba(220, 206, 178, 0.45)';
-  ctx.lineWidth = 1.8;
-  ctx.beginPath();
-  for (let s = 0; s < 40; s++) {
-    const t = s / 40;
-    const ang = t * Math.PI * 4.5;
-    const rad = t * (w * 0.045);
-    const sx = cx + Math.cos(ang) * rad;
-    const sy = cy + Math.sin(ang) * rad;
-    if (s === 0) ctx.moveTo(sx, sy);
-    else ctx.lineTo(sx, sy);
-  }
-  ctx.stroke();
-
-  // Pestillo vertical superior encajado
-  ctx.fillStyle = '#4e473f';
-  ctx.strokeStyle = '#090808';
-  ctx.lineWidth = 1.6;
-  ctx.fillRect(cx - 7, cy - w * 0.355, 14, w * 0.085);
-  ctx.strokeRect(cx - 7, cy - w * 0.355, 14, w * 0.085);
-  ctx.restore();
-
-  // 4. Destello irregular del flash analógico y rasguños finos de película
-  ctx.save();
-  const flashSpot = ctx.createRadialGradient(w * 0.34, h * 0.3, 4, w * 0.34, h * 0.3, w * 0.34);
-  flashSpot.addColorStop(0, 'rgba(255, 248, 232, 0.24)');
-  flashSpot.addColorStop(0.45, 'rgba(224, 242, 254, 0.06)');
-  flashSpot.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = flashSpot;
-  ctx.fillRect(0, 0, w, h);
-
-  // Grano analógico de alta frecuencia
-  const imgData = ctx.getImageData(0, 0, w, h);
-  const pixels = imgData.data;
-  let seed = 404913;
-  for (let i = 0; i < pixels.length; i += 4) {
-    seed = (seed * 1664525 + 1013904223) >>> 0;
-    const grain = ((seed & 0xff) / 255 - 0.5) * 34;
-    // Ligero viraje frío / verdoso típico de película instantánea envejecida
-    pixels[i] = Math.max(0, Math.min(255, pixels[i] + grain - 4));
-    pixels[i + 1] = Math.max(0, Math.min(255, pixels[i + 1] + grain + 3));
-    pixels[i + 2] = Math.max(0, Math.min(255, pixels[i + 2] + grain + 5));
-  }
-  ctx.putImageData(imgData, 0, 0);
-
-  // Viñeta fuerte de bordes quemados de Polaroid
-  const vignette = ctx.createRadialGradient(cx, cy, w * 0.28, cx, cy, w * 0.72);
-  vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
-  vignette.addColorStop(0.72, 'rgba(3, 5, 10, 0.35)');
-  vignette.addColorStop(1, 'rgba(2, 3, 6, 0.88)');
-  ctx.fillStyle = vignette;
-  ctx.fillRect(0, 0, w, h);
-  ctx.restore();
 }
 
 export const PolaroidPhotoCard: React.FC<PolaroidPhotoCardProps> = ({
   revealProgress,
   className = '',
 }) => {
-  const photoCanvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  useEffect(() => {
-    const canvas = photoCanvasRef.current;
-    if (!canvas) return;
-    paintSpiralLockPhotograph(canvas);
-  }, []);
-
   const clamped = Math.max(0, Math.min(1, revealProgress));
-  // Curva química progresiva: arranca en emulsión oscura/neblinosa y aclara al final
-  const imageOpacity = Math.pow(clamped, 1.35);
+  // Interpolación determinista solicitada:
+  // opacity: 0 -> 1
+  // filter: brightness(0) blur(6px) -> brightness(1) blur(0px)
+  const imageOpacity = clamped;
+  const brightness = clamped;
+  const blurPx = (1 - clamped) * 6;
   const hazeOpacity = Math.max(0, 1 - clamped * 1.15);
-  const contrastPct = 70 + clamped * 46;
-  const brightnessPct = 28 + clamped * 82;
-  const sepiaPct = 55 * (1 - clamped * 0.65);
 
   return (
     <div
       className={`relative select-none rounded-[4px] bg-gradient-to-b from-[#efece3] via-[#e5e0d4] to-[#d5cfc0] p-2.5 pb-7 sm:p-3 sm:pb-9 shadow-[0_24px_55px_rgba(0,0,0,0.92),0_0_26px_rgba(125,211,252,0.14)] border border-white/60 ${className}`}
     >
       {/* Cuadro fotográfico interno con borde rehundido */}
-      <div className="relative aspect-square w-full overflow-hidden bg-[#06070a] shadow-[inset_0_2px_10px_rgba(0,0,0,0.95)] border border-black/40">
-        <canvas
-          ref={photoCanvasRef}
-          width={360}
-          height={360}
+      <div className="relative aspect-square w-full overflow-hidden bg-[#050608] shadow-[inset_0_2px_10px_rgba(0,0,0,0.95)] border border-black/40">
+        {/* Imagen vectorial embebida de alta nitidez pre-renderizada (sin dependencias externas) */}
+        <svg
+          viewBox="0 0 360 360"
+          role="img"
           aria-label="Fotografía instantánea de un candado antiguo de anillos en espiral"
           style={{
             opacity: imageOpacity,
-            filter: `contrast(${contrastPct.toFixed(0)}%) brightness(${brightnessPct.toFixed(0)}%) sepia(${sepiaPct.toFixed(0)}%)`,
+            filter: `brightness(${brightness.toFixed(3)}) blur(${blurPx.toFixed(2)}px)`,
           }}
-          className="block h-full w-full object-cover transition-opacity duration-150"
-        />
+          className="block h-full w-full"
+        >
+          <defs>
+            <radialGradient id="polaroidFlashBg" cx="46%" cy="44%" r="64%">
+              <stop offset="0%" stopColor="#433226" />
+              <stop offset="38%" stopColor="#231914" />
+              <stop offset="76%" stopColor="#100c0b" />
+              <stop offset="100%" stopColor="#040406" />
+            </radialGradient>
 
-        {/* Capa de emulsión oscura / neblinosa inicial que se disipa durante el revelado */}
+            <radialGradient id="polaroidLockShadow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#000000" stopOpacity="0.95" />
+              <stop offset="75%" stopColor="#000000" stopOpacity="0.62" />
+              <stop offset="100%" stopColor="#000000" stopOpacity="0" />
+            </radialGradient>
+
+            <linearGradient id="polaroidRingOuter" x1="12%" y1="8%" x2="88%" y2="92%">
+              <stop offset="0%" stopColor="#94765b" />
+              <stop offset="48%" stopColor="#564234" />
+              <stop offset="100%" stopColor="#1c1512" />
+            </linearGradient>
+
+            <linearGradient id="polaroidRingWood" x1="15%" y1="10%" x2="85%" y2="90%">
+              <stop offset="0%" stopColor="#77543b" />
+              <stop offset="52%" stopColor="#422c1f" />
+              <stop offset="100%" stopColor="#19110c" />
+            </linearGradient>
+
+            <linearGradient id="polaroidRingBrass" x1="10%" y1="12%" x2="90%" y2="88%">
+              <stop offset="0%" stopColor="#af8c58" />
+              <stop offset="50%" stopColor="#69512e" />
+              <stop offset="100%" stopColor="#261c0f" />
+            </linearGradient>
+
+            <linearGradient id="polaroidRingSteel" x1="12%" y1="12%" x2="88%" y2="88%">
+              <stop offset="0%" stopColor="#747d88" />
+              <stop offset="52%" stopColor="#3c4148" />
+              <stop offset="100%" stopColor="#16181c" />
+            </linearGradient>
+
+            <radialGradient id="polaroidFlashGlow" cx="35%" cy="32%" r="48%">
+              <stop offset="0%" stopColor="#fff7e2" stopOpacity="0.26" />
+              <stop offset="45%" stopColor="#e0f2fe" stopOpacity="0.08" />
+              <stop offset="100%" stopColor="#000000" stopOpacity="0" />
+            </radialGradient>
+
+            <radialGradient id="polaroidVignette" cx="50%" cy="50%" r="65%">
+              <stop offset="48%" stopColor="#000000" stopOpacity="0" />
+              <stop offset="82%" stopColor="#04070c" stopOpacity="0.46" />
+              <stop offset="100%" stopColor="#020306" stopOpacity="0.9" />
+            </radialGradient>
+
+            <filter id="polaroidFilmGrain" x="0%" y="0%" width="100%" height="100%">
+              <feTurbulence
+                type="fractalNoise"
+                baseFrequency="0.82"
+                numOctaves="2"
+                seed="404"
+                result="noise"
+              />
+              <feColorMatrix type="saturate" values="0" in="noise" result="grayNoise" />
+              <feComponentTransfer in="grayNoise" result="softNoise">
+                <feFuncA type="linear" slope="0.14" />
+              </feComponentTransfer>
+              <feBlend mode="overlay" in="SourceGraphic" in2="softNoise" />
+            </filter>
+          </defs>
+
+          <g filter="url(#polaroidFilmGrain)">
+            {/* Mesa de madera iluminada por flash */}
+            <rect x="0" y="0" width="360" height="360" fill="url(#polaroidFlashBg)" />
+
+            {/* Vetas horizontales sutiles de la madera */}
+            {Array.from({ length: 16 }).map((_, idx) => {
+              const y = 14 + idx * 22;
+              return (
+                <path
+                  key={idx}
+                  d={`M 0 ${y} Q 110 ${y + (idx % 2 === 0 ? 4 : -4)}, 220 ${y} T 360 ${y + 1}`}
+                  fill="none"
+                  stroke="rgba(10, 6, 4, 0.34)"
+                  strokeWidth={idx % 3 === 0 ? '2' : '1.2'}
+                />
+              );
+            })}
+
+            {/* Caja de madera lacada bajo el candado */}
+            <rect
+              x="40"
+              y="68"
+              width="280"
+              height="232"
+              rx="10"
+              fill="rgba(20, 9, 8, 0.94)"
+              stroke="rgba(140, 106, 78, 0.42)"
+              strokeWidth="2"
+            />
+            <rect
+              x="48"
+              y="76"
+              width="264"
+              height="216"
+              rx="6"
+              fill="none"
+              stroke="rgba(0, 0, 0, 0.65)"
+              strokeWidth="2"
+            />
+
+            {/* Sombra dura proyectada por el flash */}
+            <circle cx="187" cy="190" r="134" fill="url(#polaroidLockShadow)" />
+
+            {/* Canal guía superior del candado */}
+            <rect
+              x="169"
+              y="52"
+              width="22"
+              height="24"
+              rx="2"
+              fill="#070606"
+              stroke="rgba(198, 174, 134, 0.55)"
+              strokeWidth="1.6"
+            />
+
+            {/* Anillo 1: Hierro oxidado exterior */}
+            <g transform="translate(180 180) rotate(-52)">
+              <circle
+                cx="0"
+                cy="0"
+                r="104"
+                fill="none"
+                stroke="url(#polaroidRingOuter)"
+                strokeWidth="23"
+              />
+              <circle cx="0" cy="0" r="115.5" fill="none" stroke="#080605" strokeWidth="2.2" />
+              <circle cx="0" cy="0" r="92.5" fill="none" stroke="#080605" strokeWidth="2.2" />
+              {Array.from({ length: 12 }).map((_, i) => {
+                const a = (i / 12) * Math.PI * 2;
+                return (
+                  <line
+                    key={i}
+                    x1={Math.cos(a) * 94}
+                    y1={Math.sin(a) * 94}
+                    x2={Math.cos(a + 0.06) * 114}
+                    y2={Math.sin(a + 0.06) * 114}
+                    stroke="rgba(10, 7, 6, 0.6)"
+                    strokeWidth="1.5"
+                  />
+                );
+              })}
+              <rect
+                x="-7"
+                y="-116"
+                width="14"
+                height="24"
+                rx="1.5"
+                fill="#060505"
+                stroke="rgba(218, 200, 165, 0.45)"
+                strokeWidth="1.2"
+              />
+            </g>
+
+            {/* Anillo 2: Cedro oscuro */}
+            <g transform="translate(180 180) rotate(78)">
+              <circle
+                cx="0"
+                cy="0"
+                r="79.5"
+                fill="none"
+                stroke="url(#polaroidRingWood)"
+                strokeWidth="21"
+              />
+              <circle cx="0" cy="0" r="90" fill="none" stroke="#080605" strokeWidth="2" />
+              <circle cx="0" cy="0" r="69" fill="none" stroke="#080605" strokeWidth="2" />
+              {Array.from({ length: 12 }).map((_, i) => {
+                const a = (i / 12) * Math.PI * 2;
+                return (
+                  <line
+                    key={i}
+                    x1={Math.cos(a) * 70}
+                    y1={Math.sin(a) * 70}
+                    x2={Math.cos(a + 0.06) * 89}
+                    y2={Math.sin(a + 0.06) * 89}
+                    stroke="rgba(10, 7, 6, 0.6)"
+                    strokeWidth="1.4"
+                  />
+                );
+              })}
+              <rect
+                x="-6.5"
+                y="-90.5"
+                width="13"
+                height="22"
+                rx="1.5"
+                fill="#060505"
+                stroke="rgba(218, 200, 165, 0.42)"
+                strokeWidth="1.2"
+              />
+            </g>
+
+            {/* Anillo 3: Bronce envejecido */}
+            <g transform="translate(180 180) rotate(-126)">
+              <circle
+                cx="0"
+                cy="0"
+                r="57"
+                fill="none"
+                stroke="url(#polaroidRingBrass)"
+                strokeWidth="20"
+              />
+              <circle cx="0" cy="0" r="67" fill="none" stroke="#080605" strokeWidth="2" />
+              <circle cx="0" cy="0" r="47" fill="none" stroke="#080605" strokeWidth="2" />
+              {Array.from({ length: 10 }).map((_, i) => {
+                const a = (i / 10) * Math.PI * 2;
+                return (
+                  <line
+                    key={i}
+                    x1={Math.cos(a) * 48}
+                    y1={Math.sin(a) * 48}
+                    x2={Math.cos(a + 0.07) * 66}
+                    y2={Math.sin(a + 0.07) * 66}
+                    stroke="rgba(10, 7, 6, 0.58)"
+                    strokeWidth="1.3"
+                  />
+                );
+              })}
+              <rect
+                x="-6"
+                y="-67.5"
+                width="12"
+                height="21"
+                rx="1.5"
+                fill="#060505"
+                stroke="rgba(226, 205, 168, 0.48)"
+                strokeWidth="1.2"
+              />
+            </g>
+
+            {/* Anillo 4: Núcleo de acero */}
+            <g transform="translate(180 180) rotate(38)">
+              <circle
+                cx="0"
+                cy="0"
+                r="35.5"
+                fill="none"
+                stroke="url(#polaroidRingSteel)"
+                strokeWidth="19"
+              />
+              <circle cx="0" cy="0" r="45" fill="none" stroke="#080605" strokeWidth="2" />
+              <circle cx="0" cy="0" r="26" fill="none" stroke="#080605" strokeWidth="2" />
+              <rect
+                x="-5.5"
+                y="-45.5"
+                width="11"
+                height="20"
+                rx="1.5"
+                fill="#060505"
+                stroke="rgba(226, 232, 240, 0.45)"
+                strokeWidth="1.1"
+              />
+            </g>
+
+            {/* Núcleo central con espiral karakuri grabada */}
+            <circle cx="180" cy="180" r="24" fill="#181513" stroke="#6e5a49" strokeWidth="1.8" />
+            <path
+              d="M 180,180 C 184,176 189,179 189,184 C 189,190 179,194 173,190 C 166,185 167,173 175,168 C 185,162 197,169 197,181"
+              fill="none"
+              stroke="rgba(226, 212, 184, 0.62)"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+
+            {/* Pestillo superior trabado */}
+            <rect
+              x="173"
+              y="52"
+              width="14"
+              height="30"
+              rx="1.5"
+              fill="#554d44"
+              stroke="#0a0808"
+              strokeWidth="1.6"
+            />
+
+            {/* Brillo irregular del flash + viñeta analógica */}
+            <rect x="0" y="0" width="360" height="360" fill="url(#polaroidFlashGlow)" />
+            <rect x="0" y="0" width="360" height="360" fill="url(#polaroidVignette)" />
+          </g>
+        </svg>
+
+        {/* Capa de emulsión oscura inicial que se disipa durante los 2.5s */}
         <div
           aria-hidden="true"
           style={{ opacity: hazeOpacity }}
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_45%_40%,rgba(28,38,48,0.82),rgba(5,7,12,0.98))]"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_45%_40%,rgba(22,30,40,0.88),rgba(4,6,10,0.99))]"
         />
 
         {/* Reflejo diagonal sutil de papel fotográfico brillante */}
@@ -264,8 +339,8 @@ export const PolaroidPhotoCard: React.FC<PolaroidPhotoCardProps> = ({
 
       {/* Franja inferior de la Polaroid */}
       <div className="mt-2.5 flex items-center justify-between px-1 text-[11px] font-mono-tech tracking-[0.14em] text-[#3a362e]/85">
-        <span>{clamped < 0.98 ? 'REVELANDO...' : 'SALA DE PROFESORES · 2F'}</span>
-        <span>{clamped < 0.98 ? `${Math.round(clamped * 100)}%` : '¿...404?'}</span>
+        <span>{clamped < 1 ? 'REVELANDO...' : 'SALA DE PROFESORES · 2F'}</span>
+        <span>{clamped < 1 ? `${Math.round(clamped * 100)}%` : '¿...404?'}</span>
       </div>
     </div>
   );

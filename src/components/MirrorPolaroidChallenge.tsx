@@ -8,7 +8,7 @@ interface MirrorPolaroidChallengeProps {
   onDeveloped: () => void;
 }
 
-const DEVELOP_DURATION_MS = 2700;
+const DEVELOP_DURATION_MS = 2500;
 
 export const MirrorPolaroidChallenge: React.FC<MirrorPolaroidChallengeProps> = ({
   onDeveloped,
@@ -21,6 +21,11 @@ export const MirrorPolaroidChallenge: React.FC<MirrorPolaroidChallengeProps> = (
   const mirrorCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const shutterTriggeredRef = useRef(false);
   const developedCallbackFiredRef = useRef(false);
+  const onDevelopedRef = useRef(onDeveloped);
+
+  useEffect(() => {
+    onDevelopedRef.current = onDeveloped;
+  }, [onDeveloped]);
 
   // Vista previa en vivo de la cámara frente al espejo del baño (con respaldo procedural J-Horror)
   useEffect(() => {
@@ -95,12 +100,20 @@ export const MirrorPolaroidChallenge: React.FC<MirrorPolaroidChallengeProps> = (
     return () => cancelAnimationFrame(rafId);
   }, [stage]);
 
-  // Animación progresiva del revelado químico (2.7 segundos)
+  // Controlador determinista del revelado químico (2.5s exactos, inmune a re-renders del padre)
   useEffect(() => {
     if (stage !== 'developing') return;
 
     const startTime = performance.now();
     let rafId = 0;
+
+    const finalizeReveal = () => {
+      setRevealProgress(1);
+      if (!developedCallbackFiredRef.current) {
+        developedCallbackFiredRef.current = true;
+        onDevelopedRef.current();
+      }
+    };
 
     const step = (now: number) => {
       const elapsed = now - startTime;
@@ -108,18 +121,25 @@ export const MirrorPolaroidChallenge: React.FC<MirrorPolaroidChallengeProps> = (
       setRevealProgress(t);
 
       if (t >= 1) {
-        if (!developedCallbackFiredRef.current) {
-          developedCallbackFiredRef.current = true;
-          onDeveloped();
-        }
+        finalizeReveal();
         return;
       }
       rafId = requestAnimationFrame(step);
     };
 
     rafId = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(rafId);
-  }, [stage, onDeveloped]);
+
+    // Respaldo garantizado por temporizador en caso de suspensión de RAF en móviles
+    const fallbackTimer = window.setTimeout(() => {
+      cancelAnimationFrame(rafId);
+      finalizeReveal();
+    }, DEVELOP_DURATION_MS + 80);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.clearTimeout(fallbackTimer);
+    };
+  }, [stage]);
 
   const handleTakePhoto = useCallback(() => {
     if (shutterTriggeredRef.current) return;
