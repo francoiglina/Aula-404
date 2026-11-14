@@ -31,6 +31,7 @@ export const FLOOR_SAFETY_PERIMETERS: Record<
 
 const _tempBox = new THREE.Box3();
 const _tempSize = new THREE.Vector3();
+const _resolvedPos = { x: 0, z: 0 };
 
 function circleIntersectsBoxXZ(x: number, z: number, radius: number, box: THREE.Box3): boolean {
   const closestX = THREE.MathUtils.clamp(x, box.min.x, box.max.x);
@@ -267,9 +268,13 @@ export function resolvePlayerMovement(
   // Resguardo absoluto de seguridad: nunca devolver una coordenada fuera de límites válidos
   if (findValidWalkableZone(curX, curZ, data, radius) === null) {
     if (findValidWalkableZone(startX, startZ, data, radius) !== null) {
-      return { x: startX, z: startZ };
+      _resolvedPos.x = startX;
+      _resolvedPos.z = startZ;
+      return _resolvedPos;
     }
   }
 
-  return { x: curX, z: curZ };
+  _resolvedPos.x = curX;
+  _resolvedPos.z = curZ;
+  return _resolvedPos;
 }

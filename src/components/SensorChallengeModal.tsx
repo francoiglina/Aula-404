@@ -1,19 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Camera,
   CheckCircle2,
   Compass,
   Hand,
   Mic,
-  RefreshCw,
   Smartphone,
-  SunDim,
-  SwitchCamera,
   X,
 } from 'lucide-react';
 import { sensorService } from '../services/sensorService';
 import { soundEngine } from '../services/soundEngine';
 import { SensorChallengeType } from '../types';
+import { KarakuriLockChallenge } from './KarakuriLockChallenge';
+import { MirrorPolaroidChallenge } from './MirrorPolaroidChallenge';
 
 interface SensorChallengeModalProps {
   challengeType: SensorChallengeType;
@@ -32,18 +30,11 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
   // Step 2: Closet tactile state
   const [closetStage, setClosetStage] = useState<0 | 1 | 2 | 3>(0);
 
-  // Live sensor telemetry readouts for UI feedback
+  // Live sensor telemetry readouts for Rumores II–IV
   const [liveVolume, setLiveVolume] = useState(0);
   const [liveShake, setLiveShake] = useState(0);
-  const [liveLuminance, setLiveLuminance] = useState(145);
-  const [liveTilt, setLiveTilt] = useState({ beta: 14, gamma: -12 });
   const [micGranted, setMicGranted] = useState(sensorService.permissions.micAllowed);
-  const [camGranted, setCamGranted] = useState(sensorService.permissions.cameraAllowed);
-  const [gyroGranted, setGyroGranted] = useState(sensorService.permissions.gyroscopeAllowed);
 
-  const mirrorPreviewRef = useRef<HTMLCanvasElement | null>(null);
-  const gyroTargetOffset = useRef({ beta: 14, gamma: -11 });
-  const hasInitializedGyroOffset = useRef(false);
   const completedRef = useRef(false);
 
   const finishChallenge = () => {
@@ -51,36 +42,22 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
     completedRef.current = true;
     setCompleted(true);
     setProgress(100);
-    sensorService.simulatedLuminance = null;
-    sensorService.simulatedTilt = null;
     soundEngine.vibrate(35);
 
+    const delayMs = challengeType === 'karakuri_profesor' ? 220 : 480;
     window.setTimeout(() => {
       onComplete(challengeType);
-    }, 480);
+    }, delayMs);
   };
 
-  // Reset state when challenge opens & manage isolated gyroscope lifecycle for PASO 6
   useEffect(() => {
     completedRef.current = false;
     setCompleted(false);
     setProgress(0);
     setClosetStage(0);
-    hasInitializedGyroOffset.current = false;
-
-    if (challengeType === 'gyro_profesor') {
-      void sensorService.enableGyroscope().then((ok) => {
-        setGyroGranted(ok);
-      });
-    }
 
     return () => {
-      sensorService.simulatedLuminance = null;
-      sensorService.simulatedTilt = null;
       sensorService.onShakeSpike = undefined;
-      if (challengeType === 'gyro_profesor') {
-        sensorService.disableGyroscope();
-      }
     };
   }, [challengeType]);
 
@@ -105,8 +82,10 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
     };
   }, [challengeType]);
 
-  // Continuous RAF sensor loop for Mic, Light/Camera, Shake bar, and Gyroscope
+  // Continuous RAF sensor loop strictly for shake_bikes and mic_whisper
   useEffect(() => {
+    if (challengeType !== 'shake_bikes' && challengeType !== 'mic_whisper') return;
+
     let rafId = 0;
     let lastTime = performance.now();
 
@@ -124,76 +103,6 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
         if (!completedRef.current && vol > 0.14) {
           setProgress((prev) => {
             const next = Math.min(100, prev + dt * (38 + vol * 45));
-            if (next >= 100) {
-              finishChallenge();
-            }
-            return next;
-          });
-        }
-      } else if (challengeType === 'light_hanako') {
-        const lum = Math.round(sensorService.lightMetrics.luminance);
-        setLiveLuminance(lum);
-        setCamGranted(sensorService.permissions.cameraAllowed);
-
-        // Draw live mirror preview canvas
-        const canvas = mirrorPreviewRef.current;
-        if (canvas) {
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            if (
-              sensorService.permissions.cameraAllowed &&
-              sensorService.videoElement &&
-              sensorService.videoElement.readyState >= 2
-            ) {
-              ctx.drawImage(sensorService.videoElement, 0, 0, canvas.width, canvas.height);
-              ctx.fillStyle = `rgba(7, 10, 18, ${Math.max(0.22, 1 - lum / 180)})`;
-              ctx.fillRect(0, 0, canvas.width, canvas.height);
-            } else {
-              ctx.fillStyle = lum < 55 ? '#070a12' : '#0d1829';
-              ctx.fillRect(0, 0, canvas.width, canvas.height);
-            }
-
-            if (lum < 60) {
-              ctx.fillStyle = '#bae6fd';
-              ctx.font = '700 17px "Inter", sans-serif';
-              ctx.textAlign = 'center';
-              ctx.fillText('SALA DE PROFESORES', canvas.width / 2, canvas.height / 2 - 4);
-              ctx.font = '500 12px "Inter", sans-serif';
-              ctx.fillStyle = '#7dd3fc';
-              ctx.fillText('PASANDO LA 2A · FONDO IZQ.', canvas.width / 2, canvas.height / 2 + 18);
-            }
-          }
-        }
-
-        if (!completedRef.current && lum < 55) {
-          setProgress((prev) => {
-            const next = Math.min(100, prev + dt * 56);
-            if (next >= 100) {
-              finishChallenge();
-            }
-            return next;
-          });
-        }
-      } else if (challengeType === 'gyro_profesor') {
-        if (!hasInitializedGyroOffset.current) {
-          hasInitializedGyroOffset.current = true;
-          // If no physical gyro movement yet, start orb offset so user actively centers it
-          if (!sensorService.permissions.gyroscopeAllowed && !sensorService.simulatedTilt) {
-            sensorService.simulatedTilt = { beta: 16, gamma: -14 };
-            gyroTargetOffset.current = { beta: 0, gamma: 0 };
-          } else {
-            gyroTargetOffset.current = { beta: 0, gamma: 0 };
-          }
-        }
-
-        const b = sensorService.orientation.beta - gyroTargetOffset.current.beta;
-        const g = sensorService.orientation.gamma - gyroTargetOffset.current.gamma;
-        setLiveTilt({ beta: b, gamma: g });
-
-        const radialError = Math.hypot(b, g);
-        if (!completedRef.current && radialError < 9.5) {
-          setProgress((prev) => {
-            const next = Math.min(100, prev + dt * 54);
             if (next >= 100) {
               finishChallenge();
             }
@@ -228,17 +137,10 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
     }
   };
 
-  // Pointer drag pad for Gyroscope desktop/touch fallback
-  const handleAstrolabePointer = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.buttons === 0 && e.pointerType === 'mouse') return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1; // -1..1
-    const ny = ((e.clientY - rect.top) / rect.height) * 2 - 1; // -1..1
-    sensorService.simulatedTilt = {
-      beta: ny * 28,
-      gamma: nx * 28,
-    };
-  };
+  const usesLinearProgressBar =
+    challengeType === 'touch_closet' ||
+    challengeType === 'shake_bikes' ||
+    challengeType === 'mic_whisper';
 
   return (
     <div className="font-sans pointer-events-auto fixed inset-0 z-40 flex items-center justify-center bg-[#070a12]/80 backdrop-blur-md p-4 overflow-y-auto">
@@ -269,22 +171,22 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
                 {challengeType === 'touch_closet' && 'Rumor II · Cuarto de Mantenimiento'}
                 {challengeType === 'shake_bikes' && 'Rumor III · Patio de Bicicletas'}
                 {challengeType === 'mic_whisper' && 'Rumor IV · Pasillo frente a 1B'}
-                {challengeType === 'light_hanako' && 'Rumor V · Baños del 2° Piso'}
-                {challengeType === 'gyro_profesor' && 'Rumor VI · Sala de Profesores'}
+                {challengeType === 'camera_mirror' && 'Rumor V · Baños del 2° Piso'}
+                {challengeType === 'karakuri_profesor' && 'Rumor VI · Sala de Profesores'}
               </p>
               <h2 className="hud-text-contrast mt-0.5 font-display text-xl sm:text-2xl font-semibold tracking-tight text-white">
                 {challengeType === 'touch_closet' && 'Armario de Limpieza'}
                 {challengeType === 'shake_bikes' && 'Bicicletas con Hojas'}
                 {challengeType === 'mic_whisper' && 'Campanita de Vidrio'}
-                {challengeType === 'light_hanako' && 'Espejo de los Lavabos'}
-                {challengeType === 'gyro_profesor' && 'Caja del Escritorio'}
+                {challengeType === 'camera_mirror' && 'Espejo de los Lavabos'}
+                {challengeType === 'karakuri_profesor' && 'Candado de Espiral Karakuri'}
               </h2>
             </div>
 
             <button
               type="button"
               onClick={onClose}
-              aria-label="Cerrar ventana de sensor"
+              aria-label="Cerrar ventana"
               className="min-h-[38px] min-w-[38px] rounded-lg border border-[#7dd3fc]/30 bg-[#0d1829]/80 text-[#bae6fd]/80 hover:border-[#bae6fd]/70 hover:text-white transition-colors flex items-center justify-center cursor-pointer"
             >
               <X className="h-4 w-4" />
@@ -416,176 +318,48 @@ export const SensorChallengeModal: React.FC<SensorChallengeModalProps> = ({
               </div>
             )}
 
-            {challengeType === 'light_hanako' && (
-              <div className="space-y-4">
-                <p className="text-sm font-normal leading-relaxed text-slate-200/90">
-                  Cubre con la palma de tu mano la cámara de tu teléfono (o apaga la luz del lugar)
-                  hasta dejar el espejo a oscuras.
-                </p>
-
-                <div className="rounded-xl border border-[#7dd3fc]/25 bg-[#0d1829]/70 p-4 flex flex-col items-center gap-3">
-                  <canvas
-                    ref={mirrorPreviewRef}
-                    width={320}
-                    height={150}
-                    className="w-full max-w-xs rounded-lg border border-[#7dd3fc]/35 bg-[#070a12]"
-                  />
-
-                  <div className="w-full flex items-center justify-between text-xs text-slate-200">
-                    <span className="flex items-center gap-1.5">
-                      <SunDim className="h-4 w-4 text-[#7dd3fc]" />
-                      Luminosidad actual:
-                    </span>
-                    <span className="font-mono-tech font-medium text-[#bae6fd]">
-                      {liveLuminance} / 255 {liveLuminance < 55 ? '(Oscuridad Activa)' : '(Demasiada Luz)'}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap w-full gap-2">
-                    {!camGranted ? (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const ok = await sensorService.requestCamera('environment');
-                          setCamGranted(ok);
-                        }}
-                        className="flex-1 min-h-[42px] rounded-xl border border-[#bae6fd]/75 bg-[#0d1829] px-3 py-2 text-xs font-medium text-white hover:border-white hover:shadow-[0_0_18px_rgba(125,211,252,0.28)] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <Camera className="h-4 w-4 text-[#7dd3fc]" />
-                        <span>Activar Cámara</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => sensorService.toggleCameraFacing()}
-                        className="min-h-[42px] rounded-xl border border-[#7dd3fc]/35 bg-[#070a12]/80 px-3 py-2 text-xs font-medium text-slate-100 hover:border-[#bae6fd]/75 flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <SwitchCamera className="h-4 w-4 text-[#7dd3fc]" />
-                        <span>Cambiar Lente</span>
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onPointerDown={() => {
-                        sensorService.simulatedLuminance = 14;
-                      }}
-                      onPointerUp={() => {
-                        sensorService.simulatedLuminance = null;
-                      }}
-                      onPointerLeave={() => {
-                        sensorService.simulatedLuminance = null;
-                      }}
-                      className="flex-1 min-h-[42px] rounded-xl border border-[#7dd3fc]/35 bg-[#070a12]/80 px-3 py-2 text-xs font-medium text-white hover:border-[#bae6fd]/75 hover:bg-[#0d1829] active:bg-[#070a12] transition-all cursor-pointer"
-                    >
-                      Mantener Cubierto (Simulador PC)
-                    </button>
-                  </div>
-                </div>
-              </div>
+            {challengeType === 'camera_mirror' && (
+              <MirrorPolaroidChallenge onDeveloped={() => onComplete('camera_mirror')} />
             )}
 
-            {challengeType === 'gyro_profesor' && (
-              <div className="space-y-4">
-                <p className="text-sm font-normal leading-relaxed text-slate-200/90">
-                  Inclina suavemente tu teléfono (o arrastra el indicador en pantalla) para centrar el
-                  punto luminoso en el centro y mantener la caja nivelada.
-                </p>
-
-                <div className="rounded-xl border border-[#7dd3fc]/25 bg-[#0d1829]/70 p-5 flex flex-col items-center gap-3.5">
-                  <div
-                    onPointerDown={handleAstrolabePointer}
-                    onPointerMove={handleAstrolabePointer}
-                    className="relative h-44 w-44 rounded-full border border-[#7dd3fc]/55 bg-[#070a12] shadow-[inset_0_0_24px_rgba(125,211,252,0.12)] flex items-center justify-center touch-none cursor-crosshair select-none"
-                  >
-                    <div className="h-28 w-28 rounded-full border border-[#7dd3fc]/20 pointer-events-none" />
-                    <div className="h-12 w-12 rounded-full border border-[#bae6fd]/80 bg-[#7dd3fc]/10 pointer-events-none" />
-
-                    <div
-                      style={{
-                        transform: `translate3d(${Math.max(
-                          -64,
-                          Math.min(64, liveTilt.gamma * 2.1)
-                        )}px, ${Math.max(-64, Math.min(64, liveTilt.beta * 2.1))}px, 0)`,
-                      }}
-                      className="pointer-events-none absolute h-6 w-6 rounded-full bg-[#bae6fd] shadow-[0_0_14px_rgba(186,230,253,0.85)] border border-[#070a12] transition-transform duration-75"
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-2 w-full text-xs text-slate-300">
-                    <span className="font-mono-tech font-medium text-[#bae6fd]/85">
-                      Inclinación X: {liveTilt.gamma.toFixed(1)}° · Y: {liveTilt.beta.toFixed(1)}°
-                    </span>
-
-                    <div className="flex items-center gap-2">
-                      {!gyroGranted && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const ok = await sensorService.enableGyroscope();
-                            setGyroGranted(ok);
-                            if (ok) {
-                              sensorService.simulatedTilt = null;
-                            }
-                          }}
-                          className="min-h-[36px] px-3 rounded-lg border border-[#bae6fd]/75 bg-[#0d1829] text-xs font-medium text-white hover:border-white flex items-center gap-1.5 cursor-pointer"
-                        >
-                          <Compass className="h-3.5 w-3.5 text-[#7dd3fc]" />
-                          <span>Activar Giroscopio</span>
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          sensorService.recalibrateGyro();
-                          if (!sensorService.isGyroActive) {
-                            sensorService.simulatedTilt = { beta: 0, gamma: 0 };
-                          }
-                        }}
-                        className="min-h-[36px] px-3 rounded-lg border border-[#7dd3fc]/35 bg-[#070a12]/80 text-xs font-medium text-slate-200 hover:border-[#bae6fd]/70 hover:text-white flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <RefreshCw className="h-3.5 w-3.5 text-[#7dd3fc]" />
-                        <span>Nivelar / Calibrar</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            {challengeType === 'karakuri_profesor' && (
+              <KarakuriLockChallenge onUnlocked={finishChallenge} />
             )}
           </div>
 
-          {/* Shared Completion Progress Bar */}
-          <div className="mt-5 pt-4 border-t border-[#7dd3fc]/20">
-            <div className="flex items-center justify-between text-xs mb-2">
-              <span className="font-medium text-slate-100 flex items-center gap-1.5">
-                {completed ? (
-                  <>
-                    <CheckCircle2 className="h-4 w-4 text-[#bae6fd]" />
-                    <span className="text-[#bae6fd]">¡Era cierto el rumor!</span>
-                  </>
-                ) : (
-                  <>
-                    <Compass className="h-4 w-4 text-[#7dd3fc]" />
-                    <span>Comprobando el rumor</span>
-                  </>
-                )}
-              </span>
-              <span className="font-mono-tech font-semibold text-[#bae6fd]">
-                {Math.round(progress)}%
-              </span>
+          {/* Shared Completion Progress Bar (Rumores II–IV) */}
+          {usesLinearProgressBar && (
+            <div className="mt-5 pt-4 border-t border-[#7dd3fc]/20">
+              <div className="flex items-center justify-between text-xs mb-2">
+                <span className="font-medium text-slate-100 flex items-center gap-1.5">
+                  {completed ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4 text-[#bae6fd]" />
+                      <span className="text-[#bae6fd]">¡Era cierto el rumor!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Compass className="h-4 w-4 text-[#7dd3fc]" />
+                      <span>Comprobando el rumor</span>
+                    </>
+                  )}
+                </span>
+                <span className="font-mono-tech font-semibold text-[#bae6fd]">
+                  {Math.round(progress)}%
+                </span>
+              </div>
+              <div className="h-2.5 w-full rounded-full bg-[#070a12] border border-[#7dd3fc]/25 overflow-hidden">
+                <div
+                  style={{ transform: `scaleX(${progress / 100})` }}
+                  className={`h-full w-full origin-left transition-transform duration-100 ${
+                    completed
+                      ? 'bg-[#bae6fd] shadow-[0_0_12px_rgba(186,230,253,0.85)]'
+                      : 'bg-[#7dd3fc]'
+                  }`}
+                />
+              </div>
             </div>
-            <div className="h-2.5 w-full rounded-full bg-[#070a12] border border-[#7dd3fc]/25 overflow-hidden">
-              <div
-                style={{ transform: `scaleX(${progress / 100})` }}
-                className={`h-full w-full origin-left transition-transform duration-100 ${
-                  completed
-                    ? 'bg-[#bae6fd] shadow-[0_0_12px_rgba(186,230,253,0.85)]'
-                    : 'bg-[#7dd3fc]'
-                }`}
-              />
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

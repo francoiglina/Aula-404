@@ -48,6 +48,7 @@ export class SensorService {
   private luminanceCanvas: HTMLCanvasElement;
   private luminanceCtx: CanvasRenderingContext2D | null;
   private lastLuminanceSampleMs = 0;
+  private lastMirrorDrawMs = -1000;
   private nativeLux: number | null = null;
   public simulatedLuminance: number | null = null;
   public lightMetrics = {
@@ -355,30 +356,20 @@ export class SensorService {
     const h = 512;
 
     const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, '#1c1917');
-    grad.addColorStop(0.5, '#292524');
-    grad.addColorStop(1, '#0c0a09');
+    grad.addColorStop(0, '#0b1322');
+    grad.addColorStop(0.5, '#142238');
+    grad.addColorStop(1, '#050811');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
 
-    // Subtle mist ripple in bathroom mirror
-    const glowAlpha = this.lightMetrics.isDark ? 0.55 : 0.14;
-    ctx.strokeStyle = `rgba(234, 88, 12, ${glowAlpha})`;
-    ctx.lineWidth = 3;
+    // Subtle cold mist ripples in the 2F bathroom mirror
+    ctx.strokeStyle = 'rgba(186, 230, 253, 0.14)';
+    ctx.lineWidth = 2.5;
     for (let r = 0; r < 4; r++) {
-      const radius = 60 + r * 42 + Math.sin(elapsed * 1.8 + r) * 8;
+      const radius = 58 + r * 42 + Math.sin(elapsed * 1.5 + r) * 6;
       ctx.beginPath();
       ctx.arc(w / 2, h / 2, radius, 0, Math.PI * 2);
       ctx.stroke();
-    }
-
-    if (this.lightMetrics.isDark) {
-      ctx.fillStyle = '#fdba74';
-      ctx.font = 'bold 42px Georgia, serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('SALA DE PROFESORES', w / 2, h / 2 - 12);
-      ctx.font = '26px monospace';
-      ctx.fillText('ALA IZQUIERDA · 2F', w / 2, h / 2 + 34);
     }
   }
 
@@ -390,7 +381,7 @@ export class SensorService {
   }
 
   // Per-frame sensor smoothing (gyroscope Lerp runs ONLY when isolated gyro capture is active)
-  update(delta: number, elapsed: number) {
+  update(delta: number, elapsed: number, shouldUpdateMirror = true) {
     const smooth = Math.min(1, delta * 8.0);
 
     if (this.simulatedTilt) {
@@ -474,9 +465,11 @@ export class SensorService {
     }
 
     // Update Light / Camera luminance
-    this.sampleCameraLuminance(performance.now());
+    const nowMs = performance.now();
+    this.sampleCameraLuminance(nowMs);
 
-    if (!this.permissions.cameraAllowed) {
+    if (!this.permissions.cameraAllowed && shouldUpdateMirror && nowMs - this.lastMirrorDrawMs >= 90) {
+      this.lastMirrorDrawMs = nowMs;
       this.drawFallbackMirror(elapsed);
       this.fallbackMirrorTexture.needsUpdate = true;
     }

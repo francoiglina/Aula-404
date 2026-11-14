@@ -17,8 +17,8 @@ export type SensorChallengeType =
   | 'touch_closet'
   | 'shake_bikes'
   | 'mic_whisper'
-  | 'light_hanako'
-  | 'gyro_profesor';
+  | 'camera_mirror'
+  | 'karakuri_profesor';
 
 export type CharacterPortraitId =
   | 'tsuki'

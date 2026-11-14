@@ -74,6 +74,17 @@
   }
 }
 
+@keyframes polaroidSlideIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 34px, 0) scale(0.9) rotate(2deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1) rotate(-1deg);
+  }
+}
+
 .animate-portrait-emerge {
   animation: portraitEmergeBehindTab 540ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -534,7 +545,7 @@
   animation: titleGrainShift 0.36s steps(4, end) infinite;
 }
 
-/* Contenedor principal del SVG vectorial "AULA 404" */
+/* Contenedor principal del logo oficial "AULA 404" */
 @keyframes titleLogoIdleFloat {
   0%,
   100% {
@@ -572,64 +583,21 @@
   }
 }
 
-/* Entrada con encendido eléctrico / glitch sutil del Torii, Pizarrón y "ULA" */
-@keyframes titleLogoElectricalOn {
+/* Entrada sutil del logo (sin sobrescribir filter: invert(1) de la imagen) */
+@keyframes titleLogoReveal {
   0% {
     opacity: 0;
-    transform: translate3d(-4px, 0, 0) scale(0.985);
-    filter: drop-shadow(0 0 0px rgba(165, 243, 252, 0));
+    transform: scale(0.975);
   }
-  18% {
+  30% {
     opacity: 0.85;
-    transform: translate3d(2px, 0, 0) scale(1);
-    filter: drop-shadow(0 0 18px rgba(165, 243, 252, 0.75));
-  }
-  28% {
-    opacity: 0.22;
-    transform: translate3d(-2px, 0, 0);
+    transform: scale(1);
   }
   44% {
+    opacity: 0.32;
+  }
+  68% {
     opacity: 0.95;
-    transform: translate3d(1px, 0, 0);
-  }
-  54% {
-    opacity: 0.52;
-    transform: translate3d(0, 0, 0);
-  }
-  72% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0);
-    filter: drop-shadow(0 0 16px rgba(165, 243, 252, 0.55));
-  }
-  100% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0);
-    filter: drop-shadow(0 0 12px rgba(207, 250, 254, 0.45));
-  }
-}
-
-/* Despliegue en perspectiva de la proyección "404" en el suelo */
-@keyframes titleFloor404Unfold {
-  0% {
-    opacity: 0;
-    clip-path: inset(0 0 100% 0);
-    transform: translate3d(-12px, -16px, 0) scaleY(0.84);
-  }
-  35% {
-    opacity: 0.65;
-    clip-path: inset(0 0 42% 0);
-  }
-  100% {
-    opacity: 1;
-    clip-path: inset(0 0 0% 0);
-    transform: translate3d(0, 0, 0) scaleY(1);
-  }
-}
-
-@keyframes titleWallFrameFade {
-  0% {
-    opacity: 0;
-    transform: scale(0.98);
   }
   100% {
     opacity: 1;
@@ -640,51 +608,33 @@
 .title-logo-stage {
   position: relative;
   z-index: 10;
-  width: min(88vw, 660px);
+  width: min(88vw, 72vh, 660px);
+  overflow: visible;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   margin: auto 0;
+  padding-bottom: clamp(1rem, 3vh, 2.25rem);
   animation:
-    titleLogoIdleFloat 6.5s ease-in-out 2.8s infinite,
-    titleFluorescentFlicker 8.5s linear 3s infinite;
+    titleLogoIdleFloat 6.5s ease-in-out 2s infinite,
+    titleFluorescentFlicker 8.5s linear 2.2s infinite;
   will-change: transform, opacity;
 }
 
-.title-logo-svg {
+.title-logo-img {
+  display: block;
   width: 100%;
   height: auto;
-  overflow: visible;
-  filter: drop-shadow(0 0 22px rgba(165, 243, 252, 0.24))
-    drop-shadow(0 12px 28px rgba(0, 0, 0, 0.78));
-}
-
-#logo-wall-frame {
-  opacity: 0;
-  animation: titleWallFrameFade 1100ms cubic-bezier(0.22, 1, 0.36, 1) 700ms forwards;
-  transform-origin: center center;
-}
-
-#logo-torii {
-  opacity: 0;
-  animation: titleLogoElectricalOn 950ms cubic-bezier(0.22, 1, 0.36, 1) 1050ms forwards;
-}
-
-#logo-board {
-  opacity: 0;
-  animation: titleLogoElectricalOn 900ms cubic-bezier(0.22, 1, 0.36, 1) 1220ms forwards;
-}
-
-#logo-ula {
-  opacity: 0;
-  animation: titleLogoElectricalOn 950ms cubic-bezier(0.22, 1, 0.36, 1) 1360ms forwards;
-}
-
-#logo-floor-404 {
-  opacity: 0;
-  transform-origin: 50% 0%;
-  animation: titleFloor404Unfold 1250ms cubic-bezier(0.16, 1, 0.3, 1) 1680ms forwards;
+  max-width: none;
+  margin-top: -5%;
+  margin-bottom: -14%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  filter: invert(1) drop-shadow(0 0 18px rgba(165, 243, 252, 0.34))
+    drop-shadow(0 12px 28px rgba(0, 0, 0, 0.85));
+  animation: titleLogoReveal 1150ms cubic-bezier(0.22, 1, 0.36, 1) 650ms both;
 }
 
 /* Botón interactivo "COMENZAR" estilo Press-Start con haz de luz y líneas laterales */
@@ -867,11 +817,7 @@
   .title-bg-image,
   .title-film-grain,
   .title-logo-stage,
-  #logo-wall-frame,
-  #logo-torii,
-  #logo-board,
-  #logo-ula,
-  #logo-floor-404,
+  .title-logo-img,
   .title-start-wrapper,
   .title-start-btn {
     animation: none !important;

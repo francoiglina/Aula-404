@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Volume2, VolumeX } from 'lucide-react';
+import { CheckCircle2, Volume2, VolumeX, X } from 'lucide-react';
 import { ClueTickerHud } from './components/ClueTickerHud';
 import { DialogueOverlay } from './components/DialogueOverlay';
 import { EndingModal } from './components/EndingModal';
@@ -7,6 +7,7 @@ import { LocationNotice } from './components/LocationNotice';
 import { MinimapHud } from './components/MinimapHud';
 import { MobileControlsOverlay } from './components/MobileControlsOverlay';
 import { NewClueBanner } from './components/NewClueBanner';
+import { PolaroidPhotoCard } from './components/PolaroidPhotoCard';
 import { SchoolMapModal, SchoolModalTab } from './components/SchoolMapModal';
 import { SensorChallengeModal } from './components/SensorChallengeModal';
 import { IntroLoreScreen } from './components/IntroLoreScreen';
@@ -51,6 +52,7 @@ export default function App() {
   // Overlays & Modals
   const [activeDialogue, setActiveDialogue] = useState<DialoguePayload | null>(null);
   const [activeChallenge, setActiveChallenge] = useState<SensorChallengeType | null>(null);
+  const [inspectingPolaroid, setInspectingPolaroid] = useState(false);
   const [mapModalTab, setMapModalTab] = useState<SchoolModalTab | null>(null);
   const [showEndingModal, setShowEndingModal] = useState(false);
 
@@ -112,6 +114,7 @@ export default function App() {
       !isInitialized ||
         activeDialogue ||
         activeChallenge ||
+        inspectingPolaroid ||
         mapModalTab ||
         showEndingModal ||
         isStairTransitioning
@@ -122,6 +125,7 @@ export default function App() {
     isInitialized,
     activeDialogue,
     activeChallenge,
+    inspectingPolaroid,
     mapModalTab,
     showEndingModal,
     isStairTransitioning,
@@ -268,21 +272,18 @@ export default function App() {
         return;
       }
 
-      // 4. Sensor challenge activates ONLY when interacting with an enabled .glb object marker in range
+      // 4. Challenge activates ONLY when interacting with an enabled .glb object marker in range
       if (
         marker.kind === 'objeto' &&
         marker.challengeType &&
         marker.requiredPhase === curPhase &&
         curUnlocked[marker.id]
       ) {
-        if (marker.challengeType === 'gyro_profesor') {
-          void sensorService.enableGyroscope();
-        }
         soundEngine.fadeOutBgm(0.5, { targetVolume: 0.24 });
         setActiveChallenge(marker.challengeType);
       }
     },
-    [triggerStairTransition, showToast]
+    [triggerStairTransition]
   );
 
   // Controlador exclusivo del botón derecho de interacción del overlay (valida Raycast + Distancia en vivo)
@@ -345,15 +346,31 @@ export default function App() {
       if (e.code === 'KeyE' && !isBusyOverlayRef.current) {
         e.preventDefault();
         handleOverlayInteract();
-      } else if (e.code === 'KeyM' && !activeDialogue && !activeChallenge) {
+      } else if (
+        e.code === 'KeyM' &&
+        !activeDialogue &&
+        !activeChallenge &&
+        !inspectingPolaroid
+      ) {
         e.preventDefault();
         soundEngine.playConfirm();
         setMapModalTab((prev) => (prev ? null : 'map'));
+      } else if (
+        (e.code === 'Escape' || e.code === 'Enter' || e.code === 'Space') &&
+        inspectingPolaroid &&
+        !activeDialogue &&
+        !activeChallenge &&
+        !mapModalTab &&
+        !showEndingModal
+      ) {
+        e.preventDefault();
+        soundEngine.playConfirm();
+        setInspectingPolaroid(false);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isInitialized, activeDialogue, activeChallenge, handleOverlayInteract]);
+  }, [isInitialized, activeDialogue, activeChallenge, inspectingPolaroid, handleOverlayInteract]);
 
   const handlePrepareMainScene = useCallback(() => {
     soundEngine.init();
@@ -397,7 +414,9 @@ export default function App() {
       });
 
       // 3. Actualizar etapa e indicación hacia la siguiente zona del juego
-      if (sensorData.nextPhase === 'ESTADO_FINAL') {
+      if (sensorData.nextPhase === 'ESTADO_5') {
+        setUnlockedObjects((prev) => ({ ...prev, objeto_profesor: true }));
+      } else if (sensorData.nextPhase === 'ESTADO_FINAL') {
         finalSubstateRef.current = 'pendiente';
         setFinalSubstate('pendiente');
       }
@@ -438,12 +457,15 @@ export default function App() {
   };
 
   const handleChallengeComplete = (completedType: SensorChallengeType) => {
-    if (completedType === 'gyro_profesor') {
-      sensorService.disableGyroscope();
-    }
     setActiveChallenge(null);
     soundEngine.fadeInBgm(0.75);
-    // Abre la lectura final del hallazgo del sensor; al cerrarla se ejecutará onFinishSensorInteraction
+
+    if (completedType === 'camera_mirror') {
+      // Mantiene la Polaroid revelada visible mientras aparece el cuadro de pensamiento del protagonista
+      setInspectingPolaroid(true);
+    }
+
+    // Abre la lectura final del hallazgo; al cerrarla se ejecutará onFinishSensorInteraction
     setActiveDialogue(POST_CHALLENGE_DIALOGUES[completedType]);
   };
 
@@ -466,10 +488,10 @@ export default function App() {
   }, [currentFloor, showToast]);
 
   const handleRestartStory = () => {
-    sensorService.disableGyroscope();
     setShowEndingModal(false);
     setActiveDialogue(null);
     setActiveChallenge(null);
+    setInspectingPolaroid(false);
     setClueBanner(null);
     finalSubstateRef.current = 'pendiente';
     setFinalSubstate('pendiente');
@@ -507,6 +529,7 @@ export default function App() {
         {isSceneHudMounted &&
           !activeDialogue &&
           !activeChallenge &&
+          !inspectingPolaroid &&
           !mapModalTab &&
           !showEndingModal && (
             <div className="pointer-events-auto fixed top-3.5 left-3.5 sm:top-4 sm:left-5 z-20">
@@ -538,6 +561,7 @@ export default function App() {
         {isSceneHudMounted &&
           !activeDialogue &&
           !activeChallenge &&
+          !inspectingPolaroid &&
           !mapModalTab &&
           !showEndingModal && (
             <div className="pointer-events-auto fixed top-3 right-3 sm:top-4 sm:right-5 z-20 w-[176px] sm:w-[228px] flex flex-col gap-1">
@@ -559,6 +583,7 @@ export default function App() {
           !clueBanner &&
           !activeDialogue &&
           !activeChallenge &&
+          !inspectingPolaroid &&
           !mapModalTab &&
           !showEndingModal &&
           !isStairTransitioning && (
@@ -584,14 +609,59 @@ export default function App() {
         )}
 
         {/* Controles minimalistas inferiores: Joystick izquierdo y Botón de Acción derecho */}
-        {isSceneHudMounted && !activeDialogue && !activeChallenge && !showEndingModal && (
-          <MobileControlsOverlay
-            nearbyMarker={nearbyMarker}
-            onMoveInput={(x, y) => engineRef.current?.setMoveInput(x, y)}
-            onInteract={handleOverlayInteract}
-          />
-        )}
+        {isSceneHudMounted &&
+          !activeDialogue &&
+          !activeChallenge &&
+          !inspectingPolaroid &&
+          !showEndingModal && (
+            <MobileControlsOverlay
+              nearbyMarker={nearbyMarker}
+              onMoveInput={(x, y) => engineRef.current?.setMoveInput(x, y)}
+              onInteract={handleOverlayInteract}
+            />
+          )}
       </div>
+
+      {/* Polaroid revelada del espejo del baño (permanece visible sobre el textbox del pensamiento y permite cerrarla luego) */}
+      {inspectingPolaroid && (
+        <div
+          className={`pointer-events-auto fixed inset-0 z-[25] flex flex-col items-center justify-center bg-[#070a12]/72 backdrop-blur-sm px-4 transition-all ${
+            activeDialogue ? 'pb-48 sm:pb-56' : 'pb-6'
+          }`}
+        >
+          <div className="relative flex flex-col items-center">
+            {!activeDialogue && (
+              <button
+                type="button"
+                onClick={() => setInspectingPolaroid(false)}
+                aria-label="Cerrar Polaroid"
+                className="mb-3 self-end min-h-[38px] min-w-[38px] rounded-lg border border-[#7dd3fc]/40 bg-[#0d1829]/90 text-[#bae6fd] hover:border-white hover:text-white transition-colors flex items-center justify-center cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+
+            <div className="w-[225px] sm:w-[270px] -rotate-1">
+              <PolaroidPhotoCard revealProgress={1} />
+            </div>
+
+            {!activeDialogue && (
+              <div className="mt-5 flex flex-col items-center gap-2 text-center">
+                <p className="text-xs text-[#bae6fd]/85">
+                  Pista guardada · Dirígete a la Sala de Profesores pasando la 2A
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setInspectingPolaroid(false)}
+                  className="min-h-[44px] rounded-xl border border-[#bae6fd]/75 bg-[#0d1829] px-6 py-2.5 text-sm font-medium text-white shadow-[0_0_22px_rgba(125,211,252,0.22)] hover:border-white hover:bg-[#13233d] active:scale-[0.98] transition-all cursor-pointer"
+                >
+                  Guardar Polaroid y Continuar
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Character Portrait & Dialogue Box */}
       {activeDialogue && (
@@ -602,15 +672,12 @@ export default function App() {
         />
       )}
 
-      {/* Interactive Device Sensor Challenges (Rastros II–VI) */}
+      {/* Interactive Challenges & Puzzles (Rastros II–VI) */}
       {activeChallenge && (
         <SensorChallengeModal
           challengeType={activeChallenge}
           onComplete={handleChallengeComplete}
           onClose={() => {
-            if (activeChallenge === 'gyro_profesor') {
-              sensorService.disableGyroscope();
-            }
             setActiveChallenge(null);
             soundEngine.fadeInBgm(0.65);
           }}

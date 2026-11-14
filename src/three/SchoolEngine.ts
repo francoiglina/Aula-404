@@ -62,6 +62,15 @@ const _dummyObj = new THREE.Object3D();
 const _pointerNdc = new THREE.Vector2();
 const _markerTargetPos = new THREE.Vector3();
 const _projectedNdc = new THREE.Vector3();
+const _raycastHits: THREE.Intersection[] = [];
+const _colorReady = new THREE.Color('#10b981');
+const _colorLocked = new THREE.Color('#f43f5e');
+const _colorCorridor = new THREE.Color('#b8d0de');
+const _colorStairWell = new THREE.Color('#8ab0c4');
+const _colorWing1FWest = new THREE.Color('#d9b98b');
+const _colorWing1FEast = new THREE.Color('#7fa4b8');
+const _colorWing2FWest = new THREE.Color('#d9c296');
+const _colorWing2FEast = new THREE.Color('#94b8c8');
 
 function detectSoftwareWebGL(): boolean {
   try {
@@ -78,6 +87,16 @@ function detectSoftwareWebGL(): boolean {
   }
 }
 
+function detectMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const uaMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  );
+  const touchViewport =
+    typeof window !== 'undefined' && navigator.maxTouchPoints > 1 && window.innerWidth < 1024;
+  return uaMobile || touchViewport;
+}
+
 export class SchoolEngine {
   private container: HTMLElement;
   private callbacks: EngineCallbacks;
@@ -85,12 +104,22 @@ export class SchoolEngine {
   public scene: THREE.Scene;
   public camera: THREE.PerspectiveCamera;
   private isSoftwareGl: boolean;
+  private isMobileDevice: boolean;
   private composer: EffectComposer | null = null;
   private bloomPass: UnrealBloomPass | null = null;
+  private bloomResScale = 0.5;
   private sunLight: THREE.DirectionalLight | null = null;
+  private floor1Lights: THREE.PointLight[] = [];
+  private floor2Lights: THREE.PointLight[] = [];
   private skybox: AtmosphericSkyboxHandle | null = null;
   private readonly sunOffset = new THREE.Vector3(6.5, 9.5, -16);
   private sharedTextures: THREE.Texture[] = [];
+  private sharedLampGeo: THREE.BoxGeometry | null = null;
+  private sharedLampMat: THREE.MeshBasicMaterial | null = null;
+  private sharedHaloGeo: THREE.PlaneGeometry | null = null;
+  private sharedHaloMat: THREE.MeshBasicMaterial | null = null;
+  private sharedObjLockedRingMat: THREE.MeshBasicMaterial | null = null;
+  private sharedObjReadyRingMat: THREE.MeshBasicMaterial | null = null;
 
   private floor1Group = new THREE.Group();
   private floor2Group = new THREE.Group();
@@ -158,10 +187,15 @@ export class SchoolEngine {
   private frameId = 0;
   private hasCompletedBoot = false;
 
+  private leafNeedsSync = true;
+  private lastClearedLeaves = false;
+
   constructor(container: HTMLElement, callbacks: EngineCallbacks) {
     this.container = container;
     this.callbacks = callbacks;
     this.isSoftwareGl = detectSoftwareWebGL();
+    this.isMobileDevice = detectMobileDevice();
+    this.bloomResScale = this.isMobileDevice ? 0.35 : 0.5;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#0c1315');
@@ -175,7 +209,7 @@ export class SchoolEngine {
     soundEngine.attachCamera(this.camera);
 
     this.renderer = new THREE.WebGLRenderer({
-      antialias: !this.isSoftwareGl,
+      antialias: !this.isSoftwareGl && !this.isMobileDevice,
       alpha: false,
       powerPreference: 'high-performance',
       preserveDrawingBuffer: true,
@@ -183,8 +217,7 @@ export class SchoolEngine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.96;
-    // SDD Section 2.2: Strict mobile pixelRatio cap at 2
-    this.renderer.setPixelRatio(this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(this.getOptimalPixelRatio());
     this.renderer.setSize(width, height);
     this.renderer.shadowMap.enabled = !this.isSoftwareGl;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -204,6 +237,7 @@ export class SchoolEngine {
     this.skybox = createAtmosphericSkybox(95);
     this.scene.add(this.skybox.mesh);
 
+    this.createSharedCeilingLampResources();
     this.setupLighting();
     this.buildSchoolArchitecture();
     this.applyArchitecturalPbrPass();
@@ -215,9 +249,15 @@ export class SchoolEngine {
     this.setupPostProcessing(width, height);
 
     // Pre-compila ambos pisos (1F y 2F) y sus texturas/sombras durante el arranque
-    // para evitar tirones de compilación WebGL al subir las escaleras por primera vez.
+    // manteniendo exactamente 2 PointLights activos para no recompilar shaders PBR al subir escaleras.
     this.floor1Group.visible = true;
     this.floor2Group.visible = true;
+    this.floor1Lights.forEach((l) => {
+      l.visible = true;
+    });
+    this.floor2Lights.forEach((l) => {
+      l.visible = false;
+    });
     this.updateSunShadowTracking();
 
     if (!this.isSoftwareGl) {
@@ -242,22 +282,101 @@ export class SchoolEngine {
     this.scheduleNextFrame();
   }
 
+  private getOptimalPixelRatio(): number {
+    if (this.isSoftwareGl) return 1;
+    const cap = this.isMobileDevice ? 1.25 : 1.5;
+    return Math.min(window.devicePixelRatio || 1, cap);
+  }
+
+  private createSharedCeilingLampResources() {
+    // Halo radial ligero en canvas para simular resplandor de tubos fluorescentes sin PointLights individuales
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const grad = ctx.createRadialGradient(64, 32, 4, 64, 32, 62);
+      grad.addColorStop(0, 'rgba(224, 242, 254, 0.95)');
+      grad.addColorStop(0.35, 'rgba(186, 230, 253, 0.45)');
+      grad.addColorStop(0.75, 'rgba(186, 230, 253, 0.12)');
+      grad.addColorStop(1, 'rgba(186, 230, 253, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 128, 64);
+    }
+
+    const haloTex = new THREE.CanvasTexture(canvas);
+    haloTex.colorSpace = THREE.SRGBColorSpace;
+    this.sharedTextures.push(haloTex);
+
+    this.sharedLampGeo = new THREE.BoxGeometry(1.45, 0.06, 0.34);
+    this.sharedLampMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color('#bae6fd').multiplyScalar(1.55),
+      toneMapped: true,
+    });
+
+    this.sharedHaloGeo = new THREE.PlaneGeometry(2.35, 1.15);
+    this.sharedHaloMat = new THREE.MeshBasicMaterial({
+      map: haloTex,
+      color: '#bae6fd',
+      transparent: true,
+      opacity: 0.24,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.FrontSide,
+      toneMapped: true,
+    });
+  }
+
+  private addCeilingFluorescentLamp(parent: THREE.Object3D, x: number, y: number, z: number, scaleX = 1) {
+    if (!this.sharedLampGeo || !this.sharedLampMat || !this.sharedHaloGeo || !this.sharedHaloMat) return;
+    const lamp = new THREE.Mesh(this.sharedLampGeo, this.sharedLampMat);
+    lamp.position.set(x, y, z);
+    if (scaleX !== 1) lamp.scale.x = scaleX;
+    lamp.castShadow = false;
+    lamp.receiveShadow = false;
+    lamp.userData.noCollision = true;
+    parent.add(lamp);
+
+    const halo = new THREE.Mesh(this.sharedHaloGeo, this.sharedHaloMat);
+    halo.position.set(x, y - 0.045, z);
+    halo.rotation.x = Math.PI / 2;
+    if (scaleX !== 1) halo.scale.x = scaleX;
+    halo.castShadow = false;
+    halo.receiveShadow = false;
+    halo.renderOrder = 1;
+    halo.userData.noCollision = true;
+    parent.add(halo);
+  }
+
   private setupPostProcessing(width: number, height: number) {
     if (this.isSoftwareGl) return;
 
-    const composer = new EffectComposer(this.renderer);
-    composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    const pixelRatio = this.getOptimalPixelRatio();
+    // Desactiva multisampling (samples: 0) para reducir drásticamente el bandwidth/fill-rate en GPU móvil
+    const composerTarget = new THREE.WebGLRenderTarget(
+      Math.max(1, Math.floor(width * pixelRatio)),
+      Math.max(1, Math.floor(height * pixelRatio)),
+      {
+        type: THREE.HalfFloatType,
+        samples: 0,
+      }
+    );
+
+    const composer = new EffectComposer(this.renderer, composerTarget);
+    composer.setPixelRatio(pixelRatio);
     composer.setSize(width, height);
 
     const renderPass = new RenderPass(this.scene, this.camera);
     composer.addPass(renderPass);
 
-    // Bloom sutil de bajo costo (threshold 0.85) para plafones fríos, ventanas y halos neón
+    // Bloom a resolución reducida (0.5x desktop / 0.35x móvil) y threshold 0.89 para puntos emisivos reales
+    const bloomW = Math.max(1, Math.floor(width * this.bloomResScale));
+    const bloomH = Math.max(1, Math.floor(height * this.bloomResScale));
     const bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(width, height),
-      0.34,
-      0.4,
-      0.85
+      new THREE.Vector2(bloomW, bloomH),
+      0.32,
+      0.38,
+      0.89
     );
     composer.addPass(bloomPass);
 
@@ -273,7 +392,7 @@ export class SchoolEngine {
     const hemiLight = new THREE.HemisphereLight('#8ea6b4', '#261e16', 0.56);
     this.scene.add(hemiLight);
 
-    // Única luz direccional principal entrando en diagonal por los ventanales del patio
+    // Única luz direccional principal entrando en diagonal por los ventanales del patio (1024x1024 máx)
     const sunLight = new THREE.DirectionalLight('#ffebd2', 2.05);
     sunLight.position.set(
       this.playerPos.x + this.sunOffset.x,
@@ -295,6 +414,31 @@ export class SchoolEngine {
     this.scene.add(sunLight);
     this.scene.add(sunLight.target);
     this.sunLight = sunLight;
+
+    // Solo 2 PointLights ligeros (castShadow = false) por piso para mantener shader PBR fijo y rápido
+    const corridorLight1F = new THREE.PointLight('#b8d0de', 1.05, 16, 1.5);
+    corridorLight1F.castShadow = false;
+    corridorLight1F.position.set(-1.5, 2.95, 2.0);
+    this.floor1Group.add(corridorLight1F);
+
+    const wingLight1F = new THREE.PointLight('#d9b98b', 1.15, 17, 1.5);
+    wingLight1F.castShadow = false;
+    wingLight1F.position.set(-26.0, 2.9, -21.5);
+    this.floor1Group.add(wingLight1F);
+    this.floor1Lights = [corridorLight1F, wingLight1F];
+
+    const corridorLight2F = new THREE.PointLight('#b8d0de', 1.05, 16, 1.5);
+    corridorLight2F.castShadow = false;
+    corridorLight2F.position.set(0, 2.95, 0);
+    corridorLight2F.visible = false;
+    this.floor2Group.add(corridorLight2F);
+
+    const wingLight2F = new THREE.PointLight('#94b8c8', 1.15, 15, 1.5);
+    wingLight2F.castShadow = false;
+    wingLight2F.position.set(26.2, 2.95, -20.5);
+    wingLight2F.visible = false;
+    this.floor2Group.add(wingLight2F);
+    this.floor2Lights = [corridorLight2F, wingLight2F];
   }
 
   private updateSunShadowTracking() {
@@ -588,18 +732,9 @@ export class SchoolEngine {
     mainCeiling.position.set(0, wallH, 0);
     group.add(mainCeiling);
 
-    // Plafones fluorescentes de pasillo en tono frío pálido (activan Bloom sutil sobre penumbra)
-    const lampGeo = new THREE.BoxGeometry(1.45, 0.07, 0.34);
-    const lampMat = new THREE.MeshStandardMaterial({
-      color: '#e0f2fe',
-      emissive: '#bae6fd',
-      emissiveIntensity: 1.65,
-      roughness: 0.18,
-    });
+    // Plafones fluorescentes de pasillo con geometría compartida + halo aditivo ligero (sin PointLights individuales)
     for (let lx = -22; lx <= 22; lx += 8.8) {
-      const lamp = new THREE.Mesh(lampGeo, lampMat);
-      lamp.position.set(lx, wallH - 0.04, 0);
-      group.add(lamp);
+      this.addCeilingFluorescentLamp(group, lx, wallH - 0.04, 0);
     }
 
     // Pilares estructurales de madera oscura a lo largo del corredor
@@ -1609,17 +1744,13 @@ export class SchoolEngine {
       upperBaseboard.position.set(-openSide * 1.55, upperFloorY + 0.072, topLandingCenterZ);
       pocket.add(upperBaseboard);
 
-      const upperLamp = new THREE.Mesh(
-        new THREE.BoxGeometry(1.25, 0.07, 0.3),
-        new THREE.MeshStandardMaterial({
-          color: '#e0f2fe',
-          emissive: '#bae6fd',
-          emissiveIntensity: 1.25,
-          roughness: 0.2,
-        })
+      this.addCeilingFluorescentLamp(
+        pocket,
+        openSide * 3.1,
+        upperCeilY - 0.04,
+        topLandingCenterZ,
+        0.86
       );
-      upperLamp.position.set(openSide * 3.1, upperCeilY - 0.04, topLandingCenterZ);
-      pocket.add(upperLamp);
 
       // Muro posterior del hueco de escalera (z = 13.05) con ventanal alto escolar japonés
       const backZ = 13.05;
@@ -1655,14 +1786,6 @@ export class SchoolEngine {
         hBar.position.set(0, stairWinY + my, backZ - 0.03);
         pocket.add(hBar);
       });
-
-      const stairWindowLight = new THREE.PointLight('#8ab0c4', 1.15, 16);
-      stairWindowLight.position.set(0, 5.6, 11.4);
-      pocket.add(stairWindowLight);
-
-      const upperHallLight = new THREE.PointLight('#b8d0de', 0.95, 11);
-      upperHallLight.position.set(openSide * 2.8, upperFloorY + 2.4, topLandingCenterZ);
-      pocket.add(upperHallLight);
     } else {
       // 2F -> Descanso superior alineado exactamente hasta el inicio del tiro descendente (z = 2.40 .. 3.95)
       const landing = new THREE.Mesh(new THREE.PlaneGeometry(3.16, 1.55), mats.roomFloorMat);
@@ -1721,10 +1844,6 @@ export class SchoolEngine {
       lowerLanding.position.set(0, -totalRise + 0.002, zStart + totalRun + 0.464);
       lowerLanding.receiveShadow = !this.isSoftwareGl;
       pocket.add(lowerLanding);
-
-      const wellLight = new THREE.PointLight('#8fa8b8', 0.85, 10);
-      wellLight.position.set(0, 1.75, 5.6);
-      pocket.add(wellLight);
 
       const treadThick = 0.042;
       const riserThick = 0.036;
@@ -1891,9 +2010,6 @@ export class SchoolEngine {
     broomStick.userData.noCollision = true;
     closetGroup.add(broomStick);
 
-    const roomLight1 = new THREE.PointLight('#d9b98b', 1.15, 11);
-    roomLight1.position.set(-26.0, 2.9, -21.5);
-    this.floor1Group.add(roomLight1);
     this.floor1Group.add(closetGroup);
 
     // 3. Aparcabicicletas y Patio Exterior (1F East Courtyard: x: 21.8..30.5, z: -25.2..-15.1)
@@ -1931,11 +2047,6 @@ export class SchoolEngine {
     centralCourtyardGround2F.rotation.x = -Math.PI / 2;
     centralCourtyardGround2F.position.set(0, -3.5, -19.5);
     this.floor2Group.add(centralCourtyardGround2F);
-
-    // Luz exterior fría nublada coherente con la claridad azul-pizarra de los ventanales
-    const courtyardFillLight = new THREE.PointLight('#7fa4b8', 1.05, 18);
-    courtyardFillLight.position.set(26.2, 3.6, -20.8);
-    this.floor1Group.add(courtyardFillLight);
 
     // Muros perimetrales japoneses de bloques de concreto desgastado + remate + reja metálica superior
     const blockWallTex = createConcreteBlockWallTexture(maxAniso);
@@ -2365,10 +2476,6 @@ export class SchoolEngine {
     );
     this.hanakoSealRing.position.z = 0.06;
     mirrorGroup.add(this.hanakoSealRing);
-
-    const bathLight = new THREE.PointLight('#94b8c8', 1.05, 12);
-    bathLight.position.set(26.2, 2.95, -20.5);
-    this.floor2Group.add(bathLight);
     this.floor2Group.add(mirrorGroup);
 
     // 2. Sala de Profesores 2F (West Room: x: -29.5..-22.5, z: -24.7..-18.1)
@@ -2392,20 +2499,25 @@ export class SchoolEngine {
     sideDesk.userData.colliderKind = 'furniture';
     this.floor2Group.add(sideDesk);
 
-    // Composite Gyro-Reactive Sealed Astrolabe Box on Main Desk
+    // Caja antigua con cerradura karakuri de anillos concéntricos sobre el escritorio
     const cofferBase = new THREE.Group();
     cofferBase.position.set(-24.5, 0.84, -23.45);
     cofferBase.userData.noCollision = true;
 
     const lacquerMat = new THREE.MeshStandardMaterial({
-      color: '#450a0a',
-      roughness: 0.22,
-      metalness: 0.25,
+      color: '#3b1612',
+      roughness: 0.42,
+      metalness: 0.18,
     });
-    const goldMat = new THREE.MeshStandardMaterial({
-      color: '#f59e0b',
-      roughness: 0.2,
-      metalness: 0.9,
+    const oxidizedIronMat = new THREE.MeshStandardMaterial({
+      color: '#574438',
+      roughness: 0.58,
+      metalness: 0.65,
+    });
+    const agedBrassMat = new THREE.MeshStandardMaterial({
+      color: '#a17c42',
+      roughness: 0.36,
+      metalness: 0.78,
     });
 
     const boxBody = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.22, 0.52), lacquerMat);
@@ -2417,80 +2529,123 @@ export class SchoolEngine {
     const lid = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.06, 0.54), lacquerMat);
     lid.position.set(0, 0.03, 0.25);
     this.astrolabeLidPivot.add(lid);
-    cofferBase.add(this.astrolabeLidPivot);
 
-    // Floating brass gyroscope gimbals above box that mirror real phone tilt!
+    // Anillos concéntricos del candado de espiral karakuri montados sobre la tapa
     this.astrolabeOuterGimbal = new THREE.Group();
-    this.astrolabeOuterGimbal.position.set(0, 0.52, 0);
-    const outerRing = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.018, 12, 32), goldMat);
+    this.astrolabeOuterGimbal.position.set(0, 0.072, 0.25);
+    this.astrolabeOuterGimbal.rotation.x = -Math.PI / 2;
+    const outerRing = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.018, 10, 28), oxidizedIronMat);
     this.astrolabeOuterGimbal.add(outerRing);
 
     this.astrolabeInnerGimbal = new THREE.Group();
-    const innerRing = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.015, 12, 28), goldMat);
-    innerRing.rotation.y = Math.PI / 2;
+    const midRing = new THREE.Mesh(new THREE.TorusGeometry(0.125, 0.015, 10, 24), agedBrassMat);
+    this.astrolabeInnerGimbal.add(midRing);
+    const innerRing = new THREE.Mesh(new THREE.TorusGeometry(0.072, 0.012, 10, 20), oxidizedIronMat);
     this.astrolabeInnerGimbal.add(innerRing);
 
-    const coreCrystal = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.07, 0),
-      new THREE.MeshStandardMaterial({
-        color: '#fde047',
-        emissive: '#f59e0b',
-        emissiveIntensity: 0.7,
-        roughness: 0.15,
-      })
+    const centralBolt = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.028, 0.028, 0.024, 16),
+      agedBrassMat
     );
-    this.astrolabeInnerGimbal.add(coreCrystal);
-    this.astrolabeOuterGimbal.add(this.astrolabeInnerGimbal);
-    cofferBase.add(this.astrolabeOuterGimbal);
+    centralBolt.rotation.x = Math.PI / 2;
+    this.astrolabeInnerGimbal.add(centralBolt);
 
-    const staffLight = new THREE.PointLight('#d9c296', 1.2, 12);
-    staffLight.position.set(-25.8, 2.95, -21.5);
-    this.floor2Group.add(staffLight);
+    this.astrolabeOuterGimbal.add(this.astrolabeInnerGimbal);
+    this.astrolabeLidPivot.add(this.astrolabeOuterGimbal);
+    cofferBase.add(this.astrolabeLidPivot);
     this.floor2Group.add(cofferBase);
   }
 
   private buildMarkers() {
+    // Geometrías y materiales compartidos entre todos los marcadores para minimizar memoria y draw calls
+    const sharedShadowGeo = new THREE.CircleGeometry(0.68, 24);
+    const sharedShadowMat = new THREE.MeshBasicMaterial({
+      color: '#000000',
+      transparent: true,
+      opacity: 0.42,
+      depthWrite: false,
+    });
+    const sharedRingGeo = new THREE.RingGeometry(0.46, 0.62, 32);
+    const sharedPersonRingMat = new THREE.MeshBasicMaterial({
+      color: '#38bdf8',
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    const sharedStairRingMat = new THREE.MeshBasicMaterial({
+      color: '#facc15',
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    this.sharedObjLockedRingMat = new THREE.MeshBasicMaterial({
+      color: _colorLocked,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    this.sharedObjReadyRingMat = new THREE.MeshBasicMaterial({
+      color: _colorReady,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    const sharedHitProxyGeo = new THREE.CylinderGeometry(0.78, 0.78, 2.45, 8);
+    const sharedHitProxyMat = new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide });
+
+    const sharedStairConeGeo = new THREE.ConeGeometry(0.22, 0.28, 4);
+    const sharedStairMat = new THREE.MeshLambertMaterial({
+      color: '#facc15',
+      emissive: '#ca8a04',
+      emissiveIntensity: 0.22,
+      toneMapped: true,
+      transparent: true,
+      opacity: 0.36,
+      depthWrite: false,
+    });
+
     WORLD_MARKERS.forEach((marker) => {
       const root = new THREE.Group();
       root.userData.isInteractiveMarker = true;
       root.position.set(marker.position[0], marker.position[1], marker.position[2]);
 
-      const accentHex =
-        marker.kind === 'personaje'
-          ? '#38bdf8'
-          : marker.kind === 'escalera'
-          ? '#facc15'
-          : '#f43f5e';
-
       // Soft contact shadow disk on floor (prevent floating look)
-      const shadowDisk = new THREE.Mesh(
-        new THREE.CircleGeometry(0.68, 24),
-        new THREE.MeshBasicMaterial({
-          color: '#000000',
-          transparent: true,
-          opacity: 0.42,
-          depthWrite: false,
-        })
-      );
+      const shadowDisk = new THREE.Mesh(sharedShadowGeo, sharedShadowMat);
       shadowDisk.rotation.x = -Math.PI / 2;
       shadowDisk.position.y = 0.012;
+      shadowDisk.castShadow = false;
+      shadowDisk.receiveShadow = false;
       root.add(shadowDisk);
 
       // Grounded emissive marker ring matching the Map Glossary colors
-      const ringMesh = new THREE.Mesh(
-        new THREE.RingGeometry(0.46, 0.62, 32),
-        new THREE.MeshBasicMaterial({
-          color: accentHex,
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0.88,
-          polygonOffset: true,
-          polygonOffsetFactor: -1,
-          polygonOffsetUnits: -1,
-        })
-      );
+      const ringMat =
+        marker.kind === 'personaje'
+          ? sharedPersonRingMat
+          : marker.kind === 'escalera'
+          ? sharedStairRingMat
+          : this.sharedObjLockedRingMat!;
+      const ringMesh = new THREE.Mesh(sharedRingGeo, ringMat);
       ringMesh.rotation.x = -Math.PI / 2;
       ringMesh.position.y = 0.022;
+      ringMesh.castShadow = false;
+      ringMesh.receiveShadow = false;
+      ringMesh.renderOrder = 1;
       root.add(ringMesh);
 
       const fallbackVisual = new THREE.Group();
@@ -2513,6 +2668,8 @@ export class SchoolEngine {
         });
         standeeMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.08, 1.62), standeeMat);
         standeeMesh.position.set(0, 1.05, 0);
+        standeeMesh.castShadow = false;
+        standeeMesh.receiveShadow = false;
         fallbackVisual.add(standeeMesh);
 
         const base = new THREE.Mesh(
@@ -2520,6 +2677,8 @@ export class SchoolEngine {
           new THREE.MeshStandardMaterial({ color: '#3b2514', roughness: 0.65 })
         );
         base.position.y = 0.07;
+        base.castShadow = false;
+        base.receiveShadow = false;
         fallbackVisual.add(base);
 
         const diamond = new THREE.Mesh(
@@ -2534,6 +2693,8 @@ export class SchoolEngine {
           })
         );
         diamond.position.y = 2.08;
+        diamond.castShadow = false;
+        diamond.receiveShadow = false;
         floatingCore.add(diamond);
       } else if (marker.kind === 'objeto') {
         const gem = new THREE.Mesh(
@@ -2548,6 +2709,8 @@ export class SchoolEngine {
           })
         );
         gem.position.y = 1.15;
+        gem.castShadow = false;
+        gem.receiveShadow = false;
         floatingCore.add(gem);
 
         const halo = new THREE.Mesh(
@@ -2560,35 +2723,27 @@ export class SchoolEngine {
         );
         halo.position.y = 1.15;
         halo.rotation.x = Math.PI / 3;
+        halo.castShadow = false;
+        halo.receiveShadow = false;
         floatingCore.add(halo);
       } else {
         // Escalera Marker (Amber Gold Twin Ascending/Descending Chevrons)
-        const stairMat = new THREE.MeshStandardMaterial({
-          color: '#facc15',
-          emissive: '#ca8a04',
-          emissiveIntensity: 0.22,
-          toneMapped: true,
-          roughness: 0.28,
-          metalness: 0.55,
-          transparent: true,
-          opacity: 0.36,
-        });
-        stairMat.needsUpdate = true;
         const coneDir = marker.targetFloor === 2 ? 1 : -1;
         [0.95, 1.32].forEach((cy) => {
-          const cone = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.28, 4), stairMat);
+          const cone = new THREE.Mesh(sharedStairConeGeo, sharedStairMat);
           cone.position.y = cy;
+          cone.castShadow = false;
+          cone.receiveShadow = false;
           if (coneDir < 0) cone.rotation.x = Math.PI;
           floatingCore.add(cone);
         });
       }
 
       // Simplified invisible cylinder proxy (DoubleSide so close-range internal rays hit cleanly)
-      const hitProxy = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.78, 0.78, 2.45, 8),
-        new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })
-      );
+      const hitProxy = new THREE.Mesh(sharedHitProxyGeo, sharedHitProxyMat);
       hitProxy.position.y = 1.22;
+      hitProxy.castShadow = false;
+      hitProxy.receiveShadow = false;
       hitProxy.userData = { markerId: marker.id };
       root.add(hitProxy);
       this.hitProxies.push(hitProxy);
@@ -2680,6 +2835,69 @@ export class SchoolEngine {
     }
   }
 
+  private updateDynamicFloorLighting() {
+    const px = this.playerPos.x;
+    const pz = this.playerPos.z;
+
+    if (this.currentFloor === 1 && this.floor1Lights.length >= 2) {
+      const corridorLight = this.floor1Lights[0];
+      const wingLight = this.floor1Lights[1];
+
+      // Luz de corredor sigue al jugador cuantizada suavemente dentro de la planta activa
+      if (pz > 2.2) {
+        corridorLight.position.set(0, 2.95, 4.6);
+        corridorLight.color.copy(_colorCorridor);
+      } else if (pz < -5.5 && px < -22) {
+        corridorLight.position.set(-26.0, 2.95, Math.max(-17.5, pz));
+        corridorLight.color.copy(_colorCorridor);
+      } else if (pz < -5.5 && px > 22) {
+        corridorLight.position.set(26.0, 2.95, Math.max(-14.5, pz));
+        corridorLight.color.copy(pz < -14 ? _colorStairWell : _colorCorridor);
+      } else {
+        corridorLight.position.set(THREE.MathUtils.clamp(Math.round(px * 0.5) * 2, -25, 25), 2.95, 0);
+        corridorLight.color.copy(_colorCorridor);
+      }
+
+      if (px >= 0) {
+        wingLight.position.set(26.2, 3.6, -20.8);
+        wingLight.color.copy(_colorWing1FEast);
+        wingLight.intensity = 1.05;
+        wingLight.distance = 18;
+      } else {
+        wingLight.position.set(-26.0, 2.9, -21.5);
+        wingLight.color.copy(_colorWing1FWest);
+        wingLight.intensity = 1.15;
+        wingLight.distance = 14;
+      }
+    } else if (this.currentFloor === 2 && this.floor2Lights.length >= 2) {
+      const corridorLight = this.floor2Lights[0];
+      const wingLight = this.floor2Lights[1];
+
+      if (pz < -5.5 && px < -22) {
+        corridorLight.position.set(-26.0, 2.95, Math.max(-17.5, pz));
+        corridorLight.color.copy(_colorCorridor);
+      } else if (pz < -5.5 && px > 22) {
+        corridorLight.position.set(26.0, 2.95, Math.max(-14.5, pz));
+        corridorLight.color.copy(_colorCorridor);
+      } else {
+        corridorLight.position.set(THREE.MathUtils.clamp(Math.round(px * 0.5) * 2, -25, 25), 2.95, 0);
+        corridorLight.color.copy(_colorCorridor);
+      }
+
+      if (px >= 0) {
+        wingLight.position.set(26.2, 2.95, -20.5);
+        wingLight.color.copy(_colorWing2FEast);
+        wingLight.intensity = 1.1;
+        wingLight.distance = 14;
+      } else {
+        wingLight.position.set(-25.8, 2.95, -21.5);
+        wingLight.color.copy(_colorWing2FWest);
+        wingLight.intensity = 1.2;
+        wingLight.distance = 14;
+      }
+    }
+  }
+
   public setFloor(
     floor: FloorNumber,
     spawnPos?: [number, number, number],
@@ -2689,6 +2907,14 @@ export class SchoolEngine {
     this.currentFloor = floor;
     this.floor1Group.visible = floor === 1;
     this.floor2Group.visible = floor === 2;
+
+    // Apaga explícitamente luces del piso inactivo para evitar sobrecarga PBR en GPU
+    for (let i = 0; i < this.floor1Lights.length; i++) {
+      this.floor1Lights[i].visible = floor === 1;
+    }
+    for (let i = 0; i < this.floor2Lights.length; i++) {
+      this.floor2Lights[i].visible = floor === 2;
+    }
 
     if (spawnPos) {
       this.playerPos.set(spawnPos[0], 1.65, spawnPos[2]);
@@ -2723,6 +2949,7 @@ export class SchoolEngine {
 
     this.lastNearbyId = null;
     this.callbacks.onNearbyMarkerChange(null);
+    this.updateDynamicFloorLighting();
     this.updateSunShadowTracking();
     this.updateZoneAndProximity();
     this.updateReactiveWorldProps(0.016, this.clock.elapsedTime);
@@ -2955,10 +3182,11 @@ export class SchoolEngine {
     const prevFar = this.raycaster.far;
     this.raycaster.far = maxDist + 0.45;
 
-    // 1. Raycast desde el centro de la cámara hacia el marcador (.glb + hitProxy)
+    // 1. Raycast desde el centro de la cámara hacia el marcador (.glb + hitProxy) sin generar basura en heap
     _pointerNdc.set(0, 0);
     this.raycaster.setFromCamera(_pointerNdc, this.camera);
-    if (this.raycaster.intersectObject(vis.root, true).length > 0) {
+    _raycastHits.length = 0;
+    if (this.raycaster.intersectObject(vis.root, true, _raycastHits).length > 0) {
       this.raycaster.far = prevFar;
       return distSq;
     }
@@ -2976,7 +3204,8 @@ export class SchoolEngine {
     if (inFrontViewport) {
       _pointerNdc.set(_projectedNdc.x, _projectedNdc.y);
       this.raycaster.setFromCamera(_pointerNdc, this.camera);
-      const hit = this.raycaster.intersectObject(vis.root, true).length > 0;
+      _raycastHits.length = 0;
+      const hit = this.raycaster.intersectObject(vis.root, true, _raycastHits).length > 0;
       this.raycaster.far = prevFar;
       return hit ? distSq : null;
     }
@@ -3009,7 +3238,8 @@ export class SchoolEngine {
     // 1. Raycast directo desde la retícula central hacia la geometría/hitbox de la puerta
     _pointerNdc.set(0, 0);
     this.raycaster.setFromCamera(_pointerNdc, this.camera);
-    if (this.raycaster.intersectObject(this.destDoorGroup, true).length > 0) {
+    _raycastHits.length = 0;
+    if (this.raycaster.intersectObject(this.destDoorGroup, true, _raycastHits).length > 0) {
       this.raycaster.far = prevFar;
       return distSq;
     }
@@ -3027,7 +3257,8 @@ export class SchoolEngine {
     if (inFrontViewport) {
       _pointerNdc.set(_projectedNdc.x, _projectedNdc.y);
       this.raycaster.setFromCamera(_pointerNdc, this.camera);
-      const hit = this.raycaster.intersectObject(this.destDoorGroup, true).length > 0;
+      _raycastHits.length = 0;
+      const hit = this.raycaster.intersectObject(this.destDoorGroup, true, _raycastHits).length > 0;
       this.raycaster.far = prevFar;
       return hit ? distSq : null;
     }
@@ -3073,32 +3304,38 @@ export class SchoolEngine {
   }
 
   private updateReactiveWorldProps(delta: number, elapsed: number) {
-    // 1. Animate GLB markers (únicamente rotación constante en Y en posición fija) and fallback markers
+    // 1. Animate GLB markers (culling por distancia >28m) and fallback markers
     this.markersById.forEach((vis) => {
       if (vis.marker.floor !== this.currentFloor || !vis.root.visible) return;
 
-      if (vis.glbInstance) {
-        vis.glbInstance.update(delta);
-      } else {
-        vis.floatingCore.position.y = 0;
-        vis.floatingCore.rotation.y = elapsed * 1.1;
+      const dx = vis.marker.position[0] - this.playerPos.x;
+      const dz = vis.marker.position[2] - this.playerPos.z;
+      const distSq = dx * dx + dz * dz;
 
-        if (vis.standeeMesh) {
-          const dx = this.camera.position.x - vis.root.position.x;
-          const dz = this.camera.position.z - vis.root.position.z;
-          vis.standeeMesh.rotation.y = Math.atan2(dx, dz);
+      if (distSq <= 784) {
+        if (vis.glbInstance) {
+          vis.glbInstance.update(delta);
+        } else {
+          vis.floatingCore.position.y = 0;
+          vis.floatingCore.rotation.y = elapsed * 1.1;
+
+          if (vis.standeeMesh) {
+            vis.standeeMesh.rotation.y = Math.atan2(-dx, -dz);
+          }
         }
       }
 
-      // Highlight active unlocked mission object markers (and final door key object) with emerald ring
-      if (vis.marker.kind === 'objeto' && vis.marker.requiredPhase) {
+      // Highlight active unlocked mission object markers using shared materials (zero allocation)
+      if (vis.marker.kind === 'objeto' && vis.marker.requiredPhase && this.sharedObjReadyRingMat && this.sharedObjLockedRingMat) {
         const isReady =
           vis.marker.id === 'objeto_puerta_destino'
             ? this.currentPhase === 'ESTADO_FINAL' && this.finalSubstate === 'pendiente'
             : vis.marker.requiredPhase === this.currentPhase &&
               this.unlockedObjects.has(vis.marker.id);
-        const ringMat = vis.ringMesh.material as THREE.MeshBasicMaterial;
-        ringMat.color.set(isReady ? '#10b981' : '#f43f5e');
+        const targetMat = isReady ? this.sharedObjReadyRingMat : this.sharedObjLockedRingMat;
+        if (vis.ringMesh.material !== targetMat) {
+          vis.ringMesh.material = targetMat;
+        }
       }
     });
 
@@ -3117,7 +3354,7 @@ export class SchoolEngine {
     }
 
     // 2. Closet door opens slightly once inspected (ESTADO_2+)
-    if (this.closetDoorPivot) {
+    if (this.closetDoorPivot && this.currentFloor === 1) {
       const targetAngle = this.currentPhase === 'ESTADO_0' || this.currentPhase === 'ESTADO_1' ? 0 : 0.72;
       this.closetDoorPivot.rotation.y = THREE.MathUtils.damp(
         this.closetDoorPivot.rotation.y,
@@ -3127,7 +3364,7 @@ export class SchoolEngine {
       );
     }
 
-    // 3. Swirling Autumn Leaves in Bike Courtyard react to Shake Sensor!
+    // 3. Swirling Autumn Leaves in Bike Courtyard (actualiza matrices solo si está en ala derecha o hubo cambios)
     if (this.leavesInstanced && this.currentFloor === 1) {
       const shakeBoost = sensorService.shakeIntensity;
       const cleared =
@@ -3136,31 +3373,40 @@ export class SchoolEngine {
         this.currentPhase === 'ESTADO_5' ||
         this.currentPhase === 'ESTADO_FINAL';
 
-      for (let i = 0; i < this.leafSeeds.length; i++) {
-        const seed = this.leafSeeds[i];
-        seed.scatter = THREE.MathUtils.damp(
-          seed.scatter,
-          cleared ? 2.4 : shakeBoost * 2.8,
-          3.5,
-          delta
-        );
-        const a = seed.angle + elapsed * seed.speed * (1 + shakeBoost * 4.5);
-        const r = seed.radius + seed.scatter;
-        const y = cleared
-          ? 0.04
-          : seed.height + Math.sin(elapsed * 2 + i) * 0.12 + shakeBoost * 1.1;
-
-        _dummyObj.position.set(27.5 + Math.cos(a) * r, y, -21.8 + Math.sin(a) * r);
-        _dummyObj.rotation.set(
-          seed.rotOffsetX + elapsed + i,
-          a,
-          seed.rotOffsetZ + Math.sin(elapsed * 3 + i) * 0.6
-        );
-        _dummyObj.scale.setScalar(seed.scale);
-        _dummyObj.updateMatrix();
-        this.leavesInstanced.setMatrixAt(i, _dummyObj.matrix);
+      if (cleared !== this.lastClearedLeaves) {
+        this.lastClearedLeaves = cleared;
+        this.leafNeedsSync = true;
       }
-      this.leavesInstanced.instanceMatrix.needsUpdate = true;
+
+      const nearEastWing = this.playerPos.x > 14 && this.playerPos.z < -4;
+      if (nearEastWing || shakeBoost > 0.02 || this.leafNeedsSync) {
+        this.leafNeedsSync = false;
+        for (let i = 0; i < this.leafSeeds.length; i++) {
+          const seed = this.leafSeeds[i];
+          seed.scatter = THREE.MathUtils.damp(
+            seed.scatter,
+            cleared ? 2.4 : shakeBoost * 2.8,
+            3.5,
+            delta
+          );
+          const a = seed.angle + elapsed * seed.speed * (1 + shakeBoost * 4.5);
+          const r = seed.radius + seed.scatter;
+          const y = cleared
+            ? 0.04
+            : seed.height + Math.sin(elapsed * 2 + i) * 0.12 + shakeBoost * 1.1;
+
+          _dummyObj.position.set(27.5 + Math.cos(a) * r, y, -21.8 + Math.sin(a) * r);
+          _dummyObj.rotation.set(
+            seed.rotOffsetX + elapsed + i,
+            a,
+            seed.rotOffsetZ + Math.sin(elapsed * 3 + i) * 0.6
+          );
+          _dummyObj.scale.setScalar(seed.scale);
+          _dummyObj.updateMatrix();
+          this.leavesInstanced.setMatrixAt(i, _dummyObj.matrix);
+        }
+        this.leavesInstanced.instanceMatrix.needsUpdate = true;
+      }
     }
 
     // 4. Campanita de viento en el pasillo frente a 1B reactiva al micrófono
@@ -3170,36 +3416,32 @@ export class SchoolEngine {
       this.windChimeGroup.rotation.x = Math.cos(elapsed * 6.2) * (0.03 + vol * 0.35);
     }
 
-    // 5. Bathroom Mirror on 2F updates WebRTC VideoTexture & glows in darkness!
+    // 5. Espejo del baño 2F: brillo nocturno sutil cuando la pista de la Polaroid está activa
     if (this.hanakoMirrorMat && this.hanakoSealRing && this.currentFloor === 2) {
       const activeTex = sensorService.getActiveVideoOrMirrorTexture();
       if (this.hanakoMirrorMat.map !== activeTex) {
         this.hanakoMirrorMat.map = activeTex;
         this.hanakoMirrorMat.needsUpdate = true;
       }
-      const darknessRatio = 1 - THREE.MathUtils.clamp(sensorService.lightMetrics.luminance / 160, 0, 1);
-      this.hanakoMirrorMat.emissiveIntensity = 0.06 + darknessRatio * 0.85;
+      const mirrorPulse =
+        this.currentPhase === 'ESTADO_4' ? 0.22 + Math.sin(elapsed * 2.1) * 0.08 : 0.1;
+      this.hanakoMirrorMat.emissiveIntensity = mirrorPulse;
       const sealMat = this.hanakoSealRing.material as THREE.MeshBasicMaterial;
-      sealMat.opacity = 0.12 + darknessRatio * 0.82;
-      this.hanakoSealRing.rotation.z = elapsed * 0.6;
+      sealMat.opacity = this.currentPhase === 'ESTADO_4' ? 0.34 : 0.14;
+      this.hanakoSealRing.rotation.z = elapsed * 0.4;
     }
 
-    // 6. Staff Room Astrolabe Box on 2F tilts with Gyroscope & opens on ESTADO_FINAL!
+    // 6. Caja con candado karakuri en Sala de Profesores (abre su tapa en ESTADO_FINAL)
     if (
       this.astrolabeOuterGimbal &&
       this.astrolabeInnerGimbal &&
       this.astrolabeLidPivot &&
       this.currentFloor === 2
     ) {
-      const tiltX = THREE.MathUtils.degToRad(
-        THREE.MathUtils.clamp(sensorService.orientation.beta, -45, 45)
-      );
-      const tiltZ = THREE.MathUtils.degToRad(
-        THREE.MathUtils.clamp(sensorService.orientation.gamma, -45, 45)
-      );
-      this.astrolabeOuterGimbal.rotation.x = tiltX;
-      this.astrolabeInnerGimbal.rotation.z = tiltZ;
-      this.astrolabeOuterGimbal.rotation.y = elapsed * 0.45;
+      if (this.currentPhase === 'ESTADO_5') {
+        this.astrolabeOuterGimbal.rotation.z = Math.sin(elapsed * 0.75) * 0.16;
+        this.astrolabeInnerGimbal.rotation.z = -Math.sin(elapsed * 0.95) * 0.24;
+      }
 
       const targetLid = this.currentPhase === 'ESTADO_FINAL' ? -1.15 : 0;
       this.astrolabeLidPivot.rotation.x = THREE.MathUtils.damp(
@@ -3248,8 +3490,11 @@ export class SchoolEngine {
     const elapsed = this.clock.elapsedTime;
 
     if (!this.isPaused && !this.externallyPaused && !document.hidden) {
-      sensorService.update(delta, elapsed);
+      const shouldUpdateMirror =
+        this.currentFloor === 2 && this.playerPos.x > 18 && this.playerPos.z < -12;
+      sensorService.update(delta, elapsed, shouldUpdateMirror);
       this.updateMovement(delta);
+      this.updateDynamicFloorLighting();
       this.updateSunShadowTracking();
       this.updateZoneAndProximity();
       this.updateReactiveWorldProps(delta, elapsed);
@@ -3296,7 +3541,7 @@ export class SchoolEngine {
     if (this.disposed) return;
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
-    const pixelRatio = this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+    const pixelRatio = this.getOptimalPixelRatio();
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setPixelRatio(pixelRatio);
@@ -3304,6 +3549,12 @@ export class SchoolEngine {
     if (this.composer && !this.isSoftwareGl) {
       this.composer.setPixelRatio(pixelRatio);
       this.composer.setSize(width, height);
+      if (this.bloomPass) {
+        this.bloomPass.setSize(
+          Math.max(1, Math.floor(width * this.bloomResScale)),
+          Math.max(1, Math.floor(height * this.bloomResScale))
+        );
+      }
     }
   };
 
@@ -3378,17 +3629,28 @@ export class SchoolEngine {
       }
     });
 
+    const uniqueGeometries = new Set<THREE.BufferGeometry>();
+    const uniqueMaterials = new Set<THREE.Material>();
+
     this.scene.traverse((obj) => {
       if ((obj as THREE.Mesh).isMesh) {
         const mesh = obj as THREE.Mesh;
-        mesh.geometry?.dispose();
+        if (mesh.geometry) uniqueGeometries.add(mesh.geometry);
         if (Array.isArray(mesh.material)) {
-          mesh.material.forEach((m) => m.dispose());
-        } else {
-          mesh.material?.dispose();
+          mesh.material.forEach((m) => {
+            if (m) uniqueMaterials.add(m);
+          });
+        } else if (mesh.material) {
+          uniqueMaterials.add(mesh.material);
         }
       }
     });
+
+    if (this.sharedObjLockedRingMat) uniqueMaterials.add(this.sharedObjLockedRingMat);
+    if (this.sharedObjReadyRingMat) uniqueMaterials.add(this.sharedObjReadyRingMat);
+
+    uniqueGeometries.forEach((g) => g.dispose());
+    uniqueMaterials.forEach((m) => m.dispose());
 
     this.sharedTextures.forEach((t) => t.dispose());
     this.sharedTextures = [];

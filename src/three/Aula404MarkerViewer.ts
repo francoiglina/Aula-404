@@ -36,9 +36,10 @@ export interface GlbMarkerInstance {
   dispose: () => void;
 }
 
-// Caché compartido en memoria para descargar y parsear cada archivo .glb una sola vez
+// Caché compartido en memoria para descargar, parsear y optimizar cada archivo .glb una sola vez
 const sharedGltfLoader = new GLTFLoader();
 const gltfTemplateCache = new Map<MarkerGlbKind, Promise<GLTF>>();
+const preparedTemplateCache = new Map<MarkerGlbKind, Promise<GLTF>>();
 
 function detectSoftwareWebGL(): boolean {
   try {
@@ -53,6 +54,16 @@ function detectSoftwareWebGL(): boolean {
   } catch {
     return false;
   }
+}
+
+function detectMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const uaMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  );
+  const touchViewport =
+    typeof window !== 'undefined' && navigator.maxTouchPoints > 1 && window.innerWidth < 1024;
+  return uaMobile || touchViewport;
 }
 
 /**
@@ -80,30 +91,42 @@ export function loadMarkerGltfTemplate(kind: MarkerGlbKind): Promise<GLTF> {
 }
 
 const MARKER_LOWER_CONE_OPACITY = 0.15;
-const MARKER_SUBTLE_EMISSIVE_INTENSITY = 0.2;
+const _rootBox = new THREE.Box3();
+const _meshBox = new THREE.Box3();
+const _effectiveConeColor = new THREE.Color();
 
 /**
- * Aplica transparencia (opacity = 0.15) ÚNICAMENTE a los conos/cilindros concéntricos
- * inferiores del marcador .glb (identificados por nombre y mitad inferior del Box3),
- * manteniendo intactos los materiales, colores HEX, bloom y opacidad del ícono superior.
+ * Optimiza la plantilla GLTF una única vez por tipo ("objeto" o "persona"):
+ * - Reemplaza los materiales PBR de los conos inferiores (`marcador_*`) por un
+ *   `MeshBasicMaterial` compartido (`depthWrite = false`, `opacity = 0.15`, `DoubleSide`)
+ *   conservando sus colores HEX originales y eliminando cálculos PBR por fragmento.
+ * - Mantiene intactos materiales, HEX y bloom del ícono flotante superior (`svg|boton|cuerpo`).
+ * - Desactiva `castShadow` y `receiveShadow` en todos los meshes del marcador.
+ * - Todas las instancias clonadas comparten exactamente los mismos buffers y materiales.
  */
-function configureMarkerMaterials(root: THREE.Object3D): void {
+function prepareMarkerTemplateOnce(gltf: GLTF): GLTF {
+  const root = gltf.scene;
   root.updateMatrixWorld(true);
-  const rootBox = new THREE.Box3().setFromObject(root);
-  const midY = (rootBox.min.y + rootBox.max.y) * 0.5;
-  const meshBox = new THREE.Box3();
+  _rootBox.setFromObject(root);
+  const midY = (_rootBox.min.y + _rootBox.max.y) * 0.5;
+
+  const sharedConeMaterials = new Map<string, THREE.MeshBasicMaterial>();
 
   root.traverse((child) => {
     if (!(child as THREE.Mesh).isMesh) return;
     const mesh = child as THREE.Mesh;
 
-    meshBox.setFromObject(mesh);
-    const meshCenterY = (meshBox.min.y + meshBox.max.y) * 0.5;
+    // Sin costo de sombras en marcadores interactivos
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+
+    _meshBox.setFromObject(mesh);
+    const meshCenterY = (_meshBox.min.y + _meshBox.max.y) * 0.5;
 
     const isUpperIconMesh = /svg|boton|cuerpo/i.test(mesh.name);
     const isLowerConeMesh = /marcador/i.test(mesh.name);
 
-    const tuneConeMaterial = (mat: THREE.Material): THREE.Material => {
+    const optimizeConeMaterial = (mat: THREE.Material): THREE.Material => {
       const matName = mat.name || '';
       const isUpperIconMat = /svg|boton|cuerpo/i.test(matName);
       const isLowerConeMat = /marcador/i.test(matName);
@@ -113,39 +136,77 @@ function configureMarkerMaterials(root: THREE.Object3D): void {
         !isUpperIconMat &&
         (isLowerConeMesh || isLowerConeMat || (meshCenterY < midY && Boolean(mat.transparent)));
 
-      // El ícono flotante superior y su medallón conservan su material y opacidad originales
+      // El ícono flotante superior y su medallón conservan intactos sus materiales, colores HEX y bloom
       if (!isLowerCone) {
         return mat;
       }
 
-      const cloned = mat.clone();
-      const std = cloned as THREE.MeshStandardMaterial;
-
-      std.toneMapped = true;
-      if ('envMapIntensity' in std) {
-        std.envMapIntensity = 0.55;
-      }
-      if ('emissiveIntensity' in std && typeof std.emissiveIntensity === 'number') {
-        std.emissiveIntensity = MARKER_SUBTLE_EMISSIVE_INTENSITY;
-      }
-
-      std.transparent = true;
-      std.opacity = MARKER_LOWER_CONE_OPACITY;
-      std.depthWrite = false;
-      std.side = THREE.DoubleSide;
-      std.needsUpdate = true;
-      std.userData = { ...std.userData, isLowerConeClone: true };
-
       mesh.renderOrder = 2;
-      return cloned;
+
+      const existing = sharedConeMaterials.get(mat.uuid);
+      if (existing) {
+        return existing;
+      }
+
+      const std = mat as THREE.MeshStandardMaterial;
+      const baseColor = std.color;
+      const emissiveColor = std.emissive;
+
+      const hasEmissive =
+        Boolean(emissiveColor) && emissiveColor.r + emissiveColor.g + emissiveColor.b > 0.01;
+      const hasBase =
+        Boolean(baseColor) && baseColor.r + baseColor.g + baseColor.b > 0.01;
+
+      if (hasEmissive && hasBase) {
+        _effectiveConeColor.copy(baseColor).lerp(emissiveColor, 0.72);
+      } else if (hasEmissive) {
+        _effectiveConeColor.copy(emissiveColor);
+      } else if (hasBase) {
+        _effectiveConeColor.copy(baseColor);
+      } else {
+        _effectiveConeColor.set('#38bdf8');
+      }
+
+      const basicMat = new THREE.MeshBasicMaterial({
+        name: mat.name,
+        color: _effectiveConeColor.clone(),
+        map: std.map ?? null,
+        transparent: true,
+        opacity: MARKER_LOWER_CONE_OPACITY,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: true,
+        fog: true,
+      });
+
+      sharedConeMaterials.set(mat.uuid, basicMat);
+      mat.dispose();
+      return basicMat;
     };
 
     if (Array.isArray(mesh.material)) {
-      mesh.material = mesh.material.map(tuneConeMaterial);
+      mesh.material = mesh.material.map(optimizeConeMaterial);
     } else if (mesh.material) {
-      mesh.material = tuneConeMaterial(mesh.material);
+      mesh.material = optimizeConeMaterial(mesh.material);
     }
   });
+
+  return gltf;
+}
+
+function loadPreparedMarkerTemplate(kind: MarkerGlbKind): Promise<GLTF> {
+  const cached = preparedTemplateCache.get(kind);
+  if (cached) return cached;
+
+  const promise = loadMarkerGltfTemplate(kind)
+    .then((gltf) => prepareMarkerTemplateOnce(gltf))
+    .catch((err) => {
+      preparedTemplateCache.delete(kind);
+      throw err;
+    });
+
+  preparedTemplateCache.set(kind, promise);
+  return promise;
 }
 
 /**
@@ -155,9 +216,9 @@ function configureMarkerMaterials(root: THREE.Object3D): void {
 export async function createGlbMarkerInstance(
   kind: MarkerGlbKind
 ): Promise<GlbMarkerInstance> {
-  const gltf = await loadMarkerGltfTemplate(kind);
+  const gltf = await loadPreparedMarkerTemplate(kind);
+  // clone(true) reutiliza directamente las instancias compartidas de BufferGeometry y Material
   const root = gltf.scene.clone(true);
-  configureMarkerMaterials(root);
 
   // Configurar THREE.AnimationMixer y reproducir únicamente los clips nativos de rotación en Y (LoopRepeat)
   const mixer = new THREE.AnimationMixer(root);
@@ -199,21 +260,7 @@ export async function createGlbMarkerInstance(
   const dispose = () => {
     mixer.stopAllAction();
     mixer.uncacheRoot(root);
-    root.traverse((obj) => {
-      if (!(obj as THREE.Mesh).isMesh) return;
-      const mesh = obj as THREE.Mesh;
-      // Solo liberamos materiales clonados de los conos inferiores; el ícono original y la geometría se comparten en caché
-      const disposeIfCloned = (mat?: THREE.Material | null) => {
-        if (mat?.userData?.isLowerConeClone) {
-          mat.dispose();
-        }
-      };
-      if (Array.isArray(mesh.material)) {
-        mesh.material.forEach(disposeIfCloned);
-      } else {
-        disposeIfCloned(mesh.material);
-      }
-    });
+    // Geometrías y materiales permanecen en caché compartidos entre todos los marcadores del mismo tipo
   };
 
   return {
@@ -286,8 +333,9 @@ export class Aula404MarkerViewer {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
+    const maxPixelRatio = detectMobileDevice() ? 1.25 : 1.5;
     this.renderer.setPixelRatio(
-      this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2)
+      this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, maxPixelRatio)
     );
     this.renderer.setSize(width, height);
     this.renderer.domElement.className = 'block h-full w-full touch-none outline-none';

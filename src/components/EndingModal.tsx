@@ -68,7 +68,7 @@ export const EndingModal: React.FC<EndingModalProps> = ({
               </span>
             </div>
             <p className="mt-2.5 text-xs font-normal text-slate-300 leading-relaxed">
-              Pistas comprobadas: Tacto · Sacudida · Soplo · Oscuridad · Equilibrio.
+              Pistas comprobadas: Tacto · Sacudida · Soplo · Fotografía · Karakuri.
             </p>
           </div>
 

@@ -713,6 +713,193 @@ class SoundEngine {
     });
   }
 
+  /**
+   * Obturador mecánico + breve carga de flash para la fotografía frente al espejo del baño.
+   */
+  playCameraShutter() {
+    this.vibrate(25);
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+
+    const now = this.ctx.currentTime;
+    const sampleRate = this.ctx.sampleRate;
+    const noiseLen = Math.floor(sampleRate * 0.045);
+    const noiseBuf = this.ctx.createBuffer(1, noiseLen, sampleRate);
+    const data = noiseBuf.getChannelData(0);
+    for (let i = 0; i < noiseLen; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (noiseLen * 0.32));
+    }
+
+    // Dos chasquidos rápidos de espejo/obturador (0 ms y +48 ms)
+    [0, 0.048].forEach((offset, idx) => {
+      if (!this.ctx || !this.sfxGain) return;
+      const t = now + offset;
+      const src = this.ctx.createBufferSource();
+      src.buffer = noiseBuf;
+
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(idx === 0 ? 2100 : 1650, t);
+      bp.Q.setValueAtTime(1.6, t);
+
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(idx === 0 ? 0.55 : 0.42, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.042);
+
+      src.connect(bp);
+      bp.connect(g);
+      g.connect(this.sfxGain);
+      src.start(t);
+    });
+
+    // Leve silbido de descarga del flash analógico
+    const flashOsc = this.ctx.createOscillator();
+    const flashGain = this.ctx.createGain();
+    flashOsc.type = 'sine';
+    flashOsc.frequency.setValueAtTime(2400, now + 0.01);
+    flashOsc.frequency.exponentialRampToValueAtTime(4200, now + 0.17);
+    flashGain.gain.setValueAtTime(0.025, now + 0.01);
+    flashGain.gain.exponentialRampToValueAtTime(0.0008, now + 0.18);
+    flashOsc.connect(flashGain);
+    flashGain.connect(this.sfxGain);
+    flashOsc.start(now + 0.01);
+    flashOsc.stop(now + 0.19);
+  }
+
+  /**
+   * Roce sutil de madera envejecida y metal al girar un anillo del candado karakuri.
+   */
+  playLockTick(ringIndex = 0) {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+
+    const now = this.ctx.currentTime;
+    const sampleRate = this.ctx.sampleRate;
+    const len = Math.floor(sampleRate * 0.028);
+    const buf = this.ctx.createBuffer(1, len, sampleRate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      ch[i] = (Math.random() * 2 - 1) * Math.exp(-i / (len * 0.28));
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buf;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(860 - ringIndex * 95, now);
+    filter.Q.setValueAtTime(4.2, now);
+
+    const nGain = this.ctx.createGain();
+    nGain.gain.setValueAtTime(0.22, now);
+    nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.026);
+
+    noise.connect(filter);
+    filter.connect(nGain);
+    nGain.connect(this.sfxGain);
+    noise.start(now);
+
+    // Golpe seco de madera/metal
+    const bodyOsc = this.ctx.createOscillator();
+    const bodyGain = this.ctx.createGain();
+    bodyOsc.type = 'triangle';
+    bodyOsc.frequency.setValueAtTime(220 + ringIndex * 18, now);
+    bodyOsc.frequency.exponentialRampToValueAtTime(115, now + 0.028);
+    bodyGain.gain.setValueAtTime(0.11, now);
+    bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+    bodyOsc.connect(bodyGain);
+    bodyGain.connect(this.sfxGain);
+    bodyOsc.start(now);
+    bodyOsc.stop(now + 0.032);
+  }
+
+  /**
+   * "Clack" seco y metálico distinto cuando un anillo cae en su muesca exacta.
+   */
+  playLockNotchClack() {
+    this.vibrate(30);
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+
+    const now = this.ctx.currentTime;
+    const oscA = this.ctx.createOscillator();
+    const oscB = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    oscA.type = 'triangle';
+    oscA.frequency.setValueAtTime(1480, now);
+    oscA.frequency.exponentialRampToValueAtTime(520, now + 0.055);
+
+    oscB.type = 'sine';
+    oscB.frequency.setValueAtTime(2420, now);
+    oscB.frequency.exponentialRampToValueAtTime(980, now + 0.045);
+
+    gain.gain.setValueAtTime(0.32, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
+
+    oscA.connect(gain);
+    oscB.connect(gain);
+    gain.connect(this.sfxGain);
+
+    oscA.start(now);
+    oscB.start(now);
+    oscA.stop(now + 0.07);
+    oscB.stop(now + 0.07);
+  }
+
+  /**
+   * Sonido contundente de pestillo central deslizándose al destrabar el candado karakuri.
+   */
+  playLockOpen() {
+    this.vibrate([40, 35, 90]);
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+
+    const now = this.ctx.currentTime;
+
+    // 1. Liberación del pestillo metálico
+    const boltOsc = this.ctx.createOscillator();
+    const boltGain = this.ctx.createGain();
+    boltOsc.type = 'sawtooth';
+    boltOsc.frequency.setValueAtTime(185, now);
+    boltOsc.frequency.exponentialRampToValueAtTime(72, now + 0.16);
+
+    const boltLp = this.ctx.createBiquadFilter();
+    boltLp.type = 'lowpass';
+    boltLp.frequency.setValueAtTime(640, now);
+
+    boltGain.gain.setValueAtTime(0.42, now);
+    boltGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+
+    boltOsc.connect(boltLp);
+    boltLp.connect(boltGain);
+    boltGain.connect(this.sfxGain);
+    boltOsc.start(now);
+    boltOsc.stop(now + 0.19);
+
+    // 2. Deslizamiento del pasador metálico (+70 ms)
+    const slideOsc = this.ctx.createOscillator();
+    const slideGain = this.ctx.createGain();
+    slideOsc.type = 'triangle';
+    slideOsc.frequency.setValueAtTime(540, now + 0.07);
+    slideOsc.frequency.exponentialRampToValueAtTime(880, now + 0.24);
+    slideGain.gain.setValueAtTime(0.001, now);
+    slideGain.gain.linearRampToValueAtTime(0.24, now + 0.08);
+    slideGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+
+    slideOsc.connect(slideGain);
+    slideGain.connect(this.sfxGain);
+    slideOsc.start(now + 0.065);
+    slideOsc.stop(now + 0.29);
+  }
+
   vibrate(pattern: number | number[] = 35) {
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try {

@@ -335,10 +335,10 @@ export const WORLD_MARKERS: WorldMarker[] = [
     floor: 2,
     position: [27.6, 0, -21.2],
     requiredPhase: 'ESTADO_4',
-    challengeType: 'light_hanako',
+    challengeType: 'camera_mirror',
   },
 
-  // --- PASO 5: El Profesor y Caja del Escritorio (2F Ala Izquierda) ---
+  // --- PASO 5: El Profesor y Candado Karakuri (2F Ala Izquierda) ---
   {
     id: 'personaje_profesor',
     kind: 'personaje',
@@ -354,12 +354,12 @@ export const WORLD_MARKERS: WorldMarker[] = [
     id: 'objeto_profesor',
     kind: 'objeto',
     glbFile: 'assets/glb/dpwii_parcial2_marcadores_objeto.glb',
-    label: 'Caja del Escritorio',
+    label: 'Caja con Candado Karakuri',
     sublabel: 'Sala de Profesores · 2° Piso',
     floor: 2,
     position: [-24.5, 0, -22.6],
     requiredPhase: 'ESTADO_5',
-    challengeType: 'gyro_profesor',
+    challengeType: 'karakuri_profesor',
   },
 
   // --- SECUENCIA FINAL: Marcador de objeto (.glb) frente a la puerta del Salón 2C (2F) ---
@@ -493,11 +493,11 @@ export const INITIAL_CLUES: ClueRecord[] = [
   {
     id: 'clue_5',
     stepNumber: 5,
-    title: 'El mensaje en el vidrio empañado',
+    title: 'La Polaroid del espejo',
     location: 'Baños del 2° Piso',
-    sensorUsed: 'Oscuridad',
+    sensorUsed: 'Cámara / Polaroid',
     summary:
-      'Como decían los de la 2C, al cubrir la luz se leyó el espejo de los lavabos; en la 2A cuentan que un profesor guarda esos registros al otro extremo del piso.',
+      'Al fotografiar el espejo de los baños se reveló lentamente una Polaroid con un candado antiguo de anillos en espiral; todo apunta a la caja guardada en la sala de profesores, pasando la 2A.',
     unlocked: false,
   },
   {
@@ -505,9 +505,9 @@ export const INITIAL_CLUES: ClueRecord[] = [
     stepNumber: 6,
     title: 'El registro asignado a la 2C',
     location: 'Sala de Profesores · 2° Piso',
-    sensorUsed: 'Equilibrio',
+    sensorUsed: 'Candado Karakuri',
     summary:
-      'Al nivelar la caja del escritorio apareció tu registro para el salón 2C; cuentan que alguien dejó una pieza frente a esa puerta para quitarle el seguro exterior.',
+      'Tras alinear de afuera hacia adentro los anillos acoplados del candado karakuri apareció tu registro para el salón 2C; dejaron una pieza frente a esa puerta para quitarle el seguro exterior.',
     unlocked: false,
   },
 ];
@@ -589,15 +589,15 @@ export function getPhaseIndicator(
   if (phase === 'ESTADO_4' && unlockedObjects.objeto_hanako) {
     return {
       stageTag: 'Rumor V',
-      title: 'El mensaje en el espejo',
-      whisper: 'Según los de la 2C, con tanta claridad no se distingue nada hasta dejar todo a oscuras.',
+      title: 'La leyenda del espejo',
+      whisper: 'Dicen que sacarle una foto al espejo de los baños revela fragmentos del futuro que pueden salvarte.',
     };
   }
   if (phase === 'ESTADO_5' && unlockedObjects.objeto_profesor) {
     return {
       stageTag: 'Rumor VI',
-      title: 'El mecanismo de la caja antigua',
-      whisper: 'En secretaría dicen que esa cerradura solo cede si se mantiene completamente nivelada.',
+      title: 'El candado de espiral',
+      whisper: 'En la sala de profesores hay una caja sellada con un candado karakuri de anillos concéntricos.',
     };
   }
   return PHASE_INDICATORS[phase];
@@ -622,14 +622,14 @@ export const SENSOR_COMPLETION_DATA: Record<SensorChallengeType, SensorInteracti
     nextPhase: 'ESTADO_4',
     nextZoneHint: 'El susurro proviene del segundo piso, rumbo a los baños del fondo...',
   },
-  light_hanako: {
-    sensorType: 'light_hanako',
+  camera_mirror: {
+    sensorType: 'camera_mirror',
     clueStep: 5,
     nextPhase: 'ESTADO_5',
-    nextZoneHint: 'El mensaje en el espejo empañado apunta hacia la sala de profesores...',
+    nextZoneHint: 'La Polaroid revela un candado de anillos en la sala de profesores...',
   },
-  gyro_profesor: {
-    sensorType: 'gyro_profesor',
+  karakuri_profesor: {
+    sensorType: 'karakuri_profesor',
     clueStep: 6,
     nextPhase: 'ESTADO_FINAL',
     nextZoneHint: 'Tu registro indica el salón 2C; dejaron una pieza frente a su puerta para abrirla...',
@@ -671,29 +671,28 @@ export const POST_CHALLENGE_DIALOGUES: Record<SensorChallengeType, DialoguePaylo
     ],
     sensorCompletion: SENSOR_COMPLETION_DATA.mic_whisper,
   },
-  light_hanako: {
-    markerId: 'personaje_hanako',
-    characterId: 'hanako',
-    speakerName: 'Hanako',
-    speakerRole: 'Estudiante · Baños del 2° Piso',
-    portraitUrl: CHARACTER_PORTRAITS.hanako,
+  camera_mirror: {
+    markerId: 'objeto_hanako',
+    speakerName: 'Pensamiento',
+    speakerRole: 'Baños · 2° Piso',
     lines: [
-      '¡Ya ves que tenían razón los de la 2C! En cuanto quedó todo oscuro se distinguió claramente lo que escribieron en el vidrio, y mira, hasta habían dejado esta llave pequeña en el borde.',
-      'Hace un momento escuché a unas chicas de la 2A comentar que al otro extremo de este piso, en la sala de profesores, hay un docente que guarda bajo llave los registros que no aparecieron en la entrada.',
+      '¿Un candado...? Parece que voy a tener que abrir algo a la fuerza si quiero encontrar una salida...',
+      'Esos anillos oxidados encajados en madera oscura... recuerdo que las chicas de la 2A mencionaron una caja cerrada al otro extremo del piso, en la sala de profesores.',
     ],
-    sensorCompletion: SENSOR_COMPLETION_DATA.light_hanako,
+    sensorCompletion: SENSOR_COMPLETION_DATA.camera_mirror,
   },
-  gyro_profesor: {
+  karakuri_profesor: {
     markerId: 'personaje_profesor',
     characterId: 'profe',
     speakerName: 'El Profesor',
     speakerRole: 'Docente · Sala de Profesores',
     portraitUrl: CHARACTER_PORTRAITS.profe,
     lines: [
-      '¡Vaya, la abriste al primer intento! Mira aquí dentro: este es tu registro de inscripción, con razón no aparecías abajo; te asignaron al salón 2C, en este mismo piso.',
-      'Por cierto, hace un rato escuché a unos chicos comentar que la puerta de la 2C tenía trabado el seguro por fuera, pero decían que alguien dejó una pieza justo frente a la entrada para poder destrabarla.',
+      'Ese golpe seco del pestillo... ¡Lograste alinear cada anillo del candado karakuri! Casi nadie tiene el pulso para compensar cómo se arrastran unos a otros al girar.',
+      'Mira aquí dentro: este es tu registro de inscripción, con razón no aparecías abajo; te asignaron al salón 2C, en este mismo piso.',
+      'Por cierto, hace un rato escuché a unos chicos comentar que la puerta de la 2C tenía trabado el seguro por fuera, pero dejaron una pieza justo frente a la entrada para poder destrabarla.',
     ],
-    sensorCompletion: SENSOR_COMPLETION_DATA.gyro_profesor,
+    sensorCompletion: SENSOR_COMPLETION_DATA.karakuri_profesor,
   },
 };
 
@@ -976,7 +975,7 @@ export function resolveMarkerDialogue(
             speakerRole: 'Estudiante · Baños del 2° Piso',
             portraitUrl: CHARACTER_PORTRAITS.hanako,
             lines: [
-              'Recuerda lo que comentaban los chicos de la 2C: con el reflejo tan fuerte que entra aquí, en ese espejo de los lavabos no se alcanza a ver nada a menos que cubran toda la luz.',
+              'Acércate al espejo de los lavabos con tu cámara y presiona el disparador; la Polaroid que salga tarda unos segundos en revelarse, pero dicen que siempre muestra justo lo que estás por enfrentar.',
             ],
             unlocksObjectId: 'objeto_hanako',
           };
@@ -989,8 +988,8 @@ export function resolveMarkerDialogue(
           portraitUrl: CHARACTER_PORTRAITS.hanako,
           lines: [
             'Jaja, así que tú eres el estudiante nuevo del que venían comentando las chicas de la 2D por todo el pasillo...',
-            '¿Ya te enteraste de lo que cuentan sobre el espejo grande aquí frente a los lavabos? Dicen que ayer alguien escribió con el dedo sobre el vapor hacia dónde llevaron las listas que faltaban.',
-            'El detalle es que entra tanta claridad que deslumbra todo el cristal; pero el otro día unos compañeros de la 2C aseguraban que cuando se bloquea la luz y queda bien oscuro, las letras vuelven a notarse solas.',
+            '¿Ya escuchaste la leyenda urbana sobre este baño? En toda la escuela aseguran que sacarle una foto al espejo de los lavabos revela fragmentos del futuro que pueden salvarte o serte muy útiles.',
+            'Suena absurdo, pero un alumno anterior descubrió la clave que buscaba por puro accidente: estaba limpiando y ajustando el lente de su cámara frente a ese mismo espejo cuando apretó el disparador sin querer.',
           ],
           unlocksNpcTalkFlag: 'hanako',
           unlocksObjectId: 'objeto_hanako',
@@ -1003,7 +1002,7 @@ export function resolveMarkerDialogue(
         speakerRole: 'Estudiante · Baños del 2° Piso',
         portraitUrl: CHARACTER_PORTRAITS.hanako,
         lines: [
-          'Según les escuché decir a las chicas de la 2A, en la sala de profesores del otro extremo de este piso sigue estando el docente que guarda esos registros bajo llave.',
+          'Así que la foto reveló un candado... Las chicas de la 2A contaban que en la sala de profesores, al otro extremo de este piso, guardan los registros bajo un mecanismo antiguo bastante raro.',
         ],
       };
     }
@@ -1016,8 +1015,8 @@ export function resolveMarkerDialogue(
           speakerRole: 'Baños · 2° Piso',
           lines:
             phase === 'ESTADO_5' || phase === 'ESTADO_FINAL'
-              ? ['En el cristal empañado todavía se alcanza a leer la referencia a la sala de profesores pasando la 2A.']
-              : ['El espejo grande frente a los lavabos refleja de lleno la luz del pasillo.'],
+              ? ['El cristal frío vuelve a reflejar solo la penumbra del baño. Todavía guardas la Polaroid donde se distingue el candado antiguo de anillos.']
+              : ['El espejo grande frente a los lavabos refleja el pasillo con un brillo inquietante. Dicen que las fotos tomadas aquí no muestran el presente.'],
         };
       }
       if (!spokenFlags.hanako) {
@@ -1031,7 +1030,7 @@ export function resolveMarkerDialogue(
       return null;
     }
 
-    // ================= PASO 5: PROFESOR & CAJA DEL ESCRITORIO =================
+    // ================= PASO 5: PROFESOR & CANDADO KARAKURI =================
     case 'personaje_profesor': {
       if (phase !== 'ESTADO_5' && phase !== 'ESTADO_FINAL') {
         return {
@@ -1041,7 +1040,7 @@ export function resolveMarkerDialogue(
           speakerRole: 'Docente · Sala de Profesores',
           portraitUrl: CHARACTER_PORTRAITS.profe,
           lines: [
-            'Disculpa, todavía estoy ordenando las listas de la 2A a la 2D. Hace poco comentaban en secretaría que alguien había visto una llave pequeña extraviada al otro lado de este piso.',
+            'Disculpa, todavía estoy ordenando las listas de la 2A a la 2D. Hace poco comentaban en secretaría que nadie ha podido abrir esa caja antigua con candado de anillos sobre el escritorio.',
           ],
         };
       }
@@ -1054,7 +1053,7 @@ export function resolveMarkerDialogue(
             speakerRole: 'Docente · Sala de Profesores',
             portraitUrl: CHARACTER_PORTRAITS.profe,
             lines: [
-              'Tal como contaba el personal de secretaría: mientras esa caja del escritorio tenga aunque sea una ligera inclinación, el seguro interno no cede.',
+              'Ten paciencia con el candado karakuri: al girar un aro, arrastra un poco al anillo siguiente. Alinea primero los anillos de afuera hacia adentro hasta escuchar el chasquido metálico en cada muesca.',
             ],
             unlocksObjectId: 'objeto_profesor',
           };
@@ -1066,9 +1065,9 @@ export function resolveMarkerDialogue(
           speakerRole: 'Docente · Sala de Profesores',
           portraitUrl: CHARACTER_PORTRAITS.profe,
           lines: [
-            'Vaya, así que era cierto lo que comentaban en secretaría sobre un estudiante de nuevo ingreso preguntando desde la 1A hasta la 2D... y además apareció la llave pequeña que se había perdido.',
-            'Los registros de inscripción que quedaron fuera del tablero están guardados en esa caja antigua sobre el escritorio central, aunque debo advertirte que tiene su historia.',
-            'Cuentan los profesores más antiguos que el director anterior la mandó fabricar con unos anillos internos muy delicados, y dicen que a todos se les atascaba hasta que descubrieron que solo se abre si se sostiene completamente recta y nivelada.',
+            'Vaya, así que era cierto lo que comentaban en secretaría sobre un estudiante nuevo buscando su salón por todo el edificio... y traes esa mirada de haber visto algo en los baños.',
+            'Los registros de inscripción que quedaron fuera del tablero están dentro de esa caja sobre el escritorio central, cerrada por un antiguo candado japonés de espiral estilo karakuri.',
+            'Sus anillos concéntricos de madera y metal oxidado están acoplados: cuando giras uno, arrastra levemente al contiguo. Alinea todas las muescas de afuera hacia adentro sin pasarte del punto exacto.',
           ],
           unlocksNpcTalkFlag: 'profesor',
           unlocksObjectId: 'objeto_profesor',
@@ -1090,20 +1089,12 @@ export function resolveMarkerDialogue(
       if (phase !== 'ESTADO_5') {
         return {
           markerId,
-          speakerName: 'Caja del Escritorio',
+          speakerName: 'Caja con Candado Karakuri',
           speakerRole: 'Sala de Profesores · 2° Piso',
           lines:
             phase === 'ESTADO_FINAL'
-              ? ['La caja de madera quedó abierta sobre el escritorio después de alinear sus anillos.']
-              : ['Una caja cerrada sobre el escritorio central con unos anillos metálicos en la tapa.'],
-        };
-      }
-      if (!spokenFlags.profesor) {
-        return {
-          markerId,
-          speakerName: 'Caja del Escritorio',
-          speakerRole: 'Sala de Profesores · 2° Piso',
-          lines: ['El profesor está a unos pasos revisando unas carpetas.'],
+              ? ['El candado de espiral cedió y la caja de madera quedó abierta sobre el escritorio del profesor.']
+              : ['Una caja antigua asegurada con un candado oxidado de anillos concéntricos ranurados.'],
         };
       }
       return null;
@@ -1172,7 +1163,7 @@ export function resolveMarkerDialogue(
         speakerRole: 'Pasillo Ala Derecha · 2° Piso',
         lines: [
           'Si vas hacia los baños del fondo, ten cuidado con la penumbra; desde aquí se oye gotear el agua incluso cuando nadie abre las llaves.',
-          'Unos alumnos comentaban que alguien dejó un mensaje escrito en el espejo, pero con la claridad de afuera cuesta distinguirlo.',
+          'Unos alumnos comentaban que si sacas una fotografía frente al espejo de los lavabos, a veces muestra algo que todavía no ha ocurrido.',
         ],
       };
 
