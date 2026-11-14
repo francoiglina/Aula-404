@@ -21,10 +21,10 @@ export interface AtmosphericSkyboxHandle {
 export function createAtmosphericSkybox(radius = 95): AtmosphericSkyboxHandle {
   const uniforms = {
     uTime: { value: 0 },
-    uHorizonColor: { value: new THREE.Color('#0c1315') },
-    uMidSkyColor: { value: new THREE.Color('#0e2030') },
-    uZenithColor: { value: new THREE.Color('#050a14') },
-    uMistGlowColor: { value: new THREE.Color('#1d384a') },
+    uHorizonColor: { value: new THREE.Color('#1e2636') },
+    uMidSkyColor: { value: new THREE.Color('#1d2d44') },
+    uZenithColor: { value: new THREE.Color('#0b1322') },
+    uMistGlowColor: { value: new THREE.Color('#2f4c6b') },
     uMoonDir: { value: new THREE.Vector3(-0.34, 0.44, -0.83).normalize() },
   };
 

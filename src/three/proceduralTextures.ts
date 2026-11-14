@@ -319,8 +319,8 @@ export function createOutdoorConcreteTexture(maxAnisotropy: number): THREE.Canva
   colorCanvas.height = 512;
   const ctx = colorCanvas.getContext('2d')!;
 
-  // Base fría gris-pizarra húmeda
-  ctx.fillStyle = '#252a2c';
+  // Base fría gris-pizarra húmeda aclarada para reflejar mejor la luz lunar y hemisférica
+  ctx.fillStyle = '#49525a';
   ctx.fillRect(0, 0, 512, 512);
 
   // Losas de pavimento de cemento envejecido (4x4) con ligera variación tonal
@@ -330,8 +330,8 @@ export function createOutdoorConcreteTexture(maxAnisotropy: number): THREE.Canva
     for (let col = 0; col < tiles; col++) {
       const x = col * step;
       const y = row * step;
-      const tone = Math.floor((hash2d(row * 7 + col, 13) - 0.5) * 12);
-      ctx.fillStyle = `rgb(${39 + tone}, ${44 + tone}, ${46 + tone})`;
+      const tone = Math.floor((hash2d(row * 7 + col, 13) - 0.5) * 14);
+      ctx.fillStyle = `rgb(${76 + tone}, ${84 + tone}, ${90 + tone})`;
       ctx.fillRect(x + 2, y + 2, step - 4, step - 4);
     }
   }
@@ -343,8 +343,8 @@ export function createOutdoorConcreteTexture(maxAnisotropy: number): THREE.Canva
     const pr = 26 + hash2d(p, 61) * 64;
 
     const dampGrad = ctx.createRadialGradient(px, py, 3, px, py, pr);
-    dampGrad.addColorStop(0, p % 4 === 0 ? 'rgba(22, 30, 26, 0.34)' : 'rgba(16, 21, 24, 0.36)');
-    dampGrad.addColorStop(1, 'rgba(16, 21, 24, 0)');
+    dampGrad.addColorStop(0, p % 4 === 0 ? 'rgba(38, 48, 44, 0.28)' : 'rgba(30, 38, 44, 0.28)');
+    dampGrad.addColorStop(1, 'rgba(30, 38, 44, 0)');
     ctx.fillStyle = dampGrad;
     ctx.fillRect(px - pr, py - pr, pr * 2, pr * 2);
   }
@@ -353,12 +353,12 @@ export function createOutdoorConcreteTexture(maxAnisotropy: number): THREE.Canva
   for (let g = 0; g < 1600; g++) {
     const gx = Math.floor(hash2d(g, 7) * 510);
     const gy = Math.floor(hash2d(g, 11) * 510);
-    ctx.fillStyle = g % 2 === 0 ? 'rgba(12, 15, 16, 0.24)' : 'rgba(120, 132, 136, 0.08)';
+    ctx.fillStyle = g % 2 === 0 ? 'rgba(24, 30, 34, 0.2)' : 'rgba(155, 168, 178, 0.12)';
     ctx.fillRect(gx, gy, 2, 2);
   }
 
   // Juntas de dilatación
-  ctx.strokeStyle = '#141819';
+  ctx.strokeStyle = '#2b3238';
   ctx.lineWidth = 3;
   for (let i = 0; i <= tiles; i++) {
     const pos = i * step;

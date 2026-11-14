@@ -208,8 +208,8 @@ export class SchoolEngine {
       : 1.0;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#0c1315');
-    this.scene.fog = new THREE.FogExp2('#0c1315', 0.027);
+    this.scene.background = new THREE.Color('#1e2636');
+    this.scene.fog = new THREE.FogExp2('#1e2636', 0.0175);
 
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || window.innerHeight;
@@ -227,7 +227,7 @@ export class SchoolEngine {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.3;
+    this.renderer.toneMappingExposure = 1.65;
     this.renderer.shadowMap.enabled = false;
     this.renderer.domElement.id = 'three-canvas';
     this.renderer.domElement.className = 'block h-full w-full touch-none outline-none';
@@ -470,18 +470,19 @@ export class SchoolEngine {
   }
 
   private setupLighting() {
-    // Iluminación global de costo GPU mínimo (sin PointLights ni mapas de sombra):
-    // HemisphereLight fría/cálida + AmbientLight equilibrada + DirectionalLight sutil para relieve
-    const hemiLight = new THREE.HemisphereLight('#8ea4c8', '#5c5346', 1.25);
+    // Iluminación global de costo cero en GPU + única DirectionalLight lunar sin sombras
+    const hemiLight = new THREE.HemisphereLight('#a8c0e4', '#6e665c', 1.95);
     this.scene.add(hemiLight);
 
-    const ambientLight = new THREE.AmbientLight('#b8c7dc', 0.62);
+    const ambientLight = new THREE.AmbientLight('#cfd8e6', 1.0);
     this.scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight('#ffebd2', 0.42);
-    dirLight.position.set(12, 18, -22);
-    dirLight.castShadow = false;
-    this.scene.add(dirLight);
+    const moonLight = new THREE.DirectionalLight('#b4c8ea', 1.35);
+    moonLight.position.set(16, 22, -32);
+    moonLight.target.position.set(26.5, 0, -21.5);
+    moonLight.castShadow = false;
+    this.scene.add(moonLight);
+    this.scene.add(moonLight.target);
   }
 
   private buildSchoolArchitecture() {
@@ -1939,8 +1940,8 @@ export class SchoolEngine {
     const concreteWallCentralMat = this.getCachedLambertMaterial('concrete_wall_central', {
       map: blockWallTexCentral,
     });
-    const copingMat = this.getCachedLambertMaterial('concrete_coping', { color: '#2d3233' });
-    const ironFenceMat = this.getCachedLambertMaterial('iron_fence', { color: '#1b2024' });
+    const copingMat = this.getCachedLambertMaterial('concrete_coping', { color: '#4b5356' });
+    const ironFenceMat = this.getCachedLambertMaterial('iron_fence', { color: '#323b42' });
 
     const addSchoolPerimeterSpan = (
       targetGroup: THREE.Group,
@@ -2017,8 +2018,8 @@ export class SchoolEngine {
     // Muro perimetral del fondo del patio central visible desde las ventanas de pasillo (1F y 2F)
     addSchoolPerimeterSpan(this.floor1Group, -23.7, -25.2, 21.8, -25.2, concreteWallCentralMat);
 
-    // Setos densos oscuros pegados a los muros del aparcabicicletas para ocultar bordes duros
-    const hedgeMat = this.getCachedLambertMaterial('hedge_foliage', { color: '#1d281f' });
+    // Setos densos pegados a los muros del aparcabicicletas para ocultar bordes duros
+    const hedgeMat = this.getCachedLambertMaterial('hedge_foliage', { color: '#2d4031' });
     const bushGeo = new THREE.DodecahedronGeometry(0.68, 1);
     const bushPositions: Array<[number, number, number]> = [
       // Base oeste del aparcabicicletas
@@ -2053,9 +2054,9 @@ export class SchoolEngine {
       this.floor1Group.add(bush);
     });
 
-    // Árboles oscuros más allá de las rejas (patio aparcabicicletas + patio central) para siluetas contra el cielo
-    const trunkMat = this.getCachedLambertMaterial('tree_trunk', { color: '#241c16' });
-    const foliageMat = this.getCachedLambertMaterial('tree_foliage', { color: '#243025' });
+    // Árboles más allá de las rejas (patio aparcabicicletas + patio central) visibles bajo la luz lunar
+    const trunkMat = this.getCachedLambertMaterial('tree_trunk', { color: '#3b2e24' });
+    const foliageMat = this.getCachedLambertMaterial('tree_foliage', { color: '#344738' });
     const addCourtyardTree = (targetGroup: THREE.Group, tx: number, ty: number, tz: number) => {
       const tree = new THREE.Group();
       tree.position.set(tx, ty, tz);
@@ -2100,14 +2101,14 @@ export class SchoolEngine {
       addCourtyardTree(this.floor2Group, tx, -3.5, tz);
     });
 
-    // Cobertizo metálico envejecido + 4 bicicletas con pintura apagada atmosférica
+    // Cobertizo metálico + luminaria emisiva exterior + 4 bicicletas bien definidas bajo la luz lunar
     const shelter = new THREE.Group();
     shelter.position.set(27.5, 0, -22.4);
-    const steelMat = this.getCachedLambertMaterial('shelter_steel', { color: '#4e5963' });
+    const steelMat = this.getCachedLambertMaterial('shelter_steel', { color: '#7b8a99' });
     const roofMat = this.getCachedLambertMaterial('shelter_roof', {
-      color: '#6f8c96',
+      color: '#8fb3c0',
       transparent: true,
-      opacity: 0.36,
+      opacity: 0.38,
       depthWrite: false,
     });
     [-2.1, 2.1].forEach((sx) => {
@@ -2132,9 +2133,26 @@ export class SchoolEngine {
     shelterRoof.userData.noCollision = true;
     shelter.add(shelterRoof);
 
-    // 4 Bicicletas compuestas en tonos desgastados coherentes con la paleta nocturna
-    const tireMat = this.getCachedLambertMaterial('bike_tire', { color: '#161514' });
-    const frameColors = ['#6e1e24', '#1e3a54', '#6e541c', '#1f3d2b'];
+    // Luminaria exterior cálida del cobertizo (material emisivo brillante sin PointLight)
+    const shedLampBody = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.08, 0.16), steelMat);
+    shedLampBody.position.set(0, 2.3, 1.04);
+    shedLampBody.userData.noCollision = true;
+    shelter.add(shedLampBody);
+
+    const shedLampBulbMat = this.getCachedLambertMaterial('shed_lamp_bulb', {
+      color: '#ffeedd',
+      emissive: 0xffeedd,
+      emissiveIntensity: 1.5,
+      toneMapped: true,
+    });
+    const shedLampBulb = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.045, 0.11), shedLampBulbMat);
+    shedLampBulb.position.set(0, 2.25, 1.04);
+    shedLampBulb.userData.noCollision = true;
+    shelter.add(shedLampBulb);
+
+    // 4 Bicicletas compuestas con albedos aclarados para reflejar la luz hemisférica y lunar
+    const tireMat = this.getCachedLambertMaterial('bike_tire', { color: '#2c2e33' });
+    const frameColors = ['#b03842', '#386fa0', '#b58c34', '#39734f'];
     [-1.35, -0.45, 0.45, 1.35].forEach((bx, idx) => {
       const bike = this.createCompositeBicycle(frameColors[idx], steelMat, tireMat);
       bike.position.set(bx, 0, 0);
