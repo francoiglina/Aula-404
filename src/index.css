@@ -1144,7 +1144,7 @@
 }
 
 /* ==========================================================================
-   Transición Cinemática de Escaleras (Whip Pan + Motion Blur Nocturno)
+   Transición Cinemática de Escaleras (100% GPU: opacity + translate3d)
    ========================================================================== */
 
 #stair-whip-overlay {
@@ -1156,101 +1156,81 @@
   overflow: hidden;
   pointer-events: all;
   touch-action: none;
+  contain: strict;
 }
 
 .stair-whip-backdrop {
   position: absolute;
   inset: 0;
-  background-color: rgba(2, 6, 16, 0);
-  will-change: background-color;
+  background-color: #020610;
+  opacity: 0;
+  will-change: opacity;
+  backface-visibility: hidden;
 }
 
 .stair-whip-carriage {
   position: absolute;
-  top: -4vh;
-  bottom: -4vh;
-  left: -60vw;
-  width: 220vw;
-  will-change: transform;
+  top: -2vh;
+  bottom: -2vh;
+  left: -55vw;
+  width: 210vw;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  contain: layout style paint;
 }
 
-/* Alas laterales con desenfoque gaussiano y degradado azul profundo nocturno -> negro */
+/* Alas laterales suavizadas por degradado puro (sin filter: blur en tiempo real) */
 .stair-whip-blur-wings {
   position: absolute;
   inset: 0;
-  filter: blur(18px);
-  transform: scaleX(1.06);
   background: linear-gradient(
     to right,
     rgba(7, 19, 38, 0) 0%,
-    rgba(15, 41, 74, 0.72) 10%,
-    #071326 19%,
-    #000000 28%,
-    #000000 72%,
-    #071326 81%,
-    rgba(15, 41, 74, 0.72) 90%,
+    rgba(15, 41, 74, 0.34) 8%,
+    rgba(7, 19, 38, 0.78) 17%,
+    #020610 24%,
+    #000000 30%,
+    #000000 70%,
+    #020610 76%,
+    rgba(7, 19, 38, 0.78) 83%,
+    rgba(15, 41, 74, 0.34) 92%,
     rgba(7, 19, 38, 0) 100%
   );
 }
 
-/* Bandas horizontales de velocidad (estelas cian pálido / azul noche) */
+/* Bandas horizontales de velocidad ligeras por gradiente puro (sin mask ni blur) */
 .stair-whip-streaks {
   position: absolute;
   inset: 0;
-  filter: blur(5px);
-  opacity: 0.92;
+  opacity: 0.78;
   background-image:
+    linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(56, 189, 248, 0.14) 14%,
+      rgba(15, 41, 74, 0.24) 22%,
+      rgba(0, 0, 0, 0) 30%,
+      rgba(0, 0, 0, 0) 70%,
+      rgba(15, 41, 74, 0.24) 78%,
+      rgba(56, 189, 248, 0.14) 86%,
+      rgba(0, 0, 0, 0) 100%
+    ),
     linear-gradient(
       to bottom,
       transparent 0%,
-      rgba(186, 230, 253, 0.12) 11%,
-      transparent 13%,
-      transparent 28%,
-      rgba(56, 189, 248, 0.18) 31%,
-      transparent 35%,
-      transparent 52%,
-      rgba(186, 230, 253, 0.14) 55%,
-      transparent 58%,
-      transparent 74%,
-      rgba(56, 189, 248, 0.16) 77%,
-      transparent 82%,
-      rgba(15, 41, 74, 0.25) 92%,
+      rgba(186, 230, 253, 0.08) 12%,
+      transparent 16%,
+      transparent 30%,
+      rgba(56, 189, 248, 0.1) 33%,
+      transparent 37%,
+      transparent 53%,
+      rgba(186, 230, 253, 0.09) 56%,
+      transparent 60%,
+      transparent 75%,
+      rgba(56, 189, 248, 0.1) 78%,
+      transparent 84%,
       transparent 100%
-    ),
-    linear-gradient(
-      to right,
-      rgba(56, 189, 248, 0) 0%,
-      rgba(186, 230, 253, 0.36) 14%,
-      rgba(15, 41, 74, 0.45) 22%,
-      rgba(0, 0, 0, 0) 31%,
-      rgba(0, 0, 0, 0) 69%,
-      rgba(15, 41, 74, 0.45) 78%,
-      rgba(186, 230, 253, 0.36) 86%,
-      rgba(56, 189, 248, 0) 100%
     );
-  background-blend-mode: screen;
-  mask-image: linear-gradient(
-    to right,
-    transparent 0%,
-    #000 12%,
-    #000 26%,
-    transparent 34%,
-    transparent 66%,
-    #000 74%,
-    #000 88%,
-    transparent 100%
-  );
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent 0%,
-    #000 12%,
-    #000 26%,
-    transparent 34%,
-    transparent 66%,
-    #000 74%,
-    #000 88%,
-    transparent 100%
-  );
 }
 
 /* Núcleo central sólido #000000 que garantiza cobertura total sin cortes del canvas 3D */
@@ -1259,7 +1239,7 @@
   top: 0;
   bottom: 0;
   left: 50vw;
-  width: 120vw;
+  width: 110vw;
   background-color: #000000;
 }
 

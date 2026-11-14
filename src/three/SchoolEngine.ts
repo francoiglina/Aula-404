@@ -125,6 +125,8 @@ export class SchoolEngine {
   private markersById = new Map<string, MarkerVisual>();
   private hitProxies: THREE.Object3D[] = [];
   private floorCollisions: Record<FloorNumber, FloorCollisionData> | null = null;
+  private activeFloorCollision: FloorCollisionData | null = null;
+  private pendingGlbAssets = 0;
   private lastNotifiedFloor: FloorNumber | null = null;
   private raycaster = new THREE.Raycaster();
 
@@ -252,6 +254,7 @@ export class SchoolEngine {
       1: buildFloorCollisionData(this.floor1Group, 1, WALKABLE_ZONES),
       2: buildFloorCollisionData(this.floor2Group, 2, WALKABLE_ZONES),
     };
+    this.activeFloorCollision = this.floorCollisions[1];
     this.mergeStaticFloorGeometries(this.floor1Group);
     this.mergeStaticFloorGeometries(this.floor2Group);
     this.freezeStaticMatrices(this.floor1Group);
@@ -260,20 +263,9 @@ export class SchoolEngine {
     this.setupPostProcessing(width, height);
     this.applyRendererResolution(width, height);
 
-    // Pre-compila ambos pisos manteniendo la escena sin PointLights ni pases de sombra
-    this.floor1Group.visible = true;
-    this.floor2Group.visible = true;
-
-    if (!this.isSoftwareGl) {
-      for (let i = 0; i < this.sharedTextures.length; i++) {
-        this.renderer.initTexture(this.sharedTextures[i]);
-      }
-      if (this.hanakoMirrorMat?.map) {
-        this.renderer.initTexture(this.hanakoMirrorMat.map);
-      }
-      this.renderer.compile(this.scene, this.camera);
-      this.renderCurrentFrame();
-    }
+    // Pre-compila shaders y fuerza la subida a GPU de Planta Baja, Segundo Piso y Patio
+    // mientras la escena permanece cubierta por la pantalla inicial, antes de ocultar 2F.
+    this.warmUpGpuResources();
 
     this.setFloor(1, [-1.5, 0, 6.0], 0, { silentFloorNotice: true });
     this.hasCompletedBoot = true;
@@ -2153,6 +2145,7 @@ export class SchoolEngine {
     this.floor1Group.add(shelter);
 
     // Vegetación y hojas en Aparcabicicletas usando geometría optimizada `leaf.glb` + THREE.InstancedMesh
+    this.pendingGlbAssets += 1;
     const leafLoaderHandle = loadAparcabicicletasLeafInstancing({
       targetGroup: this.floor1Group,
       isSoftwareGl: this.isSoftwareGl,
@@ -2165,15 +2158,11 @@ export class SchoolEngine {
         this.aparcabicicletasFoliageHandle = handle;
         this.leavesInstanced = handle.swirlingInstanced;
         this.leafSeeds = handle.swirlingSeeds;
-
-        if (!this.isSoftwareGl) {
-          handle.textures.forEach((tex) => this.renderer.initTexture(tex));
-          if (this.hasCompletedBoot) {
-            const prevVis = this.floor1Group.visible;
-            this.floor1Group.visible = true;
-            this.renderer.compile(this.scene, this.camera);
-            this.floor1Group.visible = prevVis;
-          }
+        this.onAsyncGlbAssetSettled();
+      },
+      onError: () => {
+        if (!this.disposed) {
+          this.onAsyncGlbAssetSettled();
         }
       },
     });
@@ -2750,6 +2739,7 @@ export class SchoolEngine {
       // Attach official GLB marker ("objeto" or "persona") con rotación constante sobre Y en posición fija
       if (marker.kind === 'objeto' || marker.kind === 'personaje') {
         const glbKind = marker.kind === 'personaje' ? 'persona' : 'objeto';
+        this.pendingGlbAssets += 1;
         void this.attachAnimatedGlbMarker(glbKind, visRecord);
       }
     });
@@ -2776,15 +2766,73 @@ export class SchoolEngine {
       visRecord.fallbackVisual.visible = false;
       visRecord.glbInstance = instance;
       visRecord.root.add(instance.root);
+      visRecord.root.updateMatrixWorld(true);
+    } catch {
+      // Mantiene activo el marcador procedural de respaldo si falla la red
+    } finally {
+      if (!this.disposed) {
+        this.onAsyncGlbAssetSettled();
+      }
+    }
+  }
 
-      // Si el .glb corresponde a otro piso (ej. 2F), pre-compila sus materiales en GPU al cargar
-      if (!this.isSoftwareGl && this.hasCompletedBoot && visRecord.marker.floor !== this.currentFloor) {
-        const floorGroup = visRecord.marker.floor === 1 ? this.floor1Group : this.floor2Group;
-        const prevFloorVisible = floorGroup.visible;
-        const prevMarkerVisible = visRecord.root.visible;
-        floorGroup.visible = true;
-        visRecord.root.visible = true;
-        instance.root.traverse((obj) => {
+  private onAsyncGlbAssetSettled() {
+    this.pendingGlbAssets = Math.max(0, this.pendingGlbAssets - 1);
+    if (this.pendingGlbAssets === 0 && this.hasCompletedBoot && !this.disposed) {
+      this.warmUpGpuResources();
+      if (!this.isSoftwareGl) {
+        this.renderCurrentFrame();
+      }
+    }
+  }
+
+  /**
+   * Mantiene temporalmente visibles Planta Baja, Segundo Piso, Patio y todos los marcadores .glb
+   * sin frustum culling para forzar la compilación de shaders y subida de VBOs/texturas a la GPU
+   * durante la pantalla inicial antes de ocultar los pisos inactivos.
+   */
+  private warmUpGpuResources() {
+    if (this.isSoftwareGl || this.disposed) return;
+
+    const prevFloor1Vis = this.floor1Group.visible;
+    const prevFloor2Vis = this.floor2Group.visible;
+    const savedMarkerVis = new Map<string, boolean>();
+    const savedCulling = new Map<THREE.Object3D, boolean>();
+
+    this.floor1Group.visible = true;
+    this.floor2Group.visible = true;
+
+    this.markersById.forEach((vis, id) => {
+      savedMarkerVis.set(id, vis.root.visible);
+      vis.root.visible = true;
+    });
+
+    const disableCullingForWarmup = (root: THREE.Object3D) => {
+      root.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh || (obj as THREE.Sprite).isSprite) {
+          savedCulling.set(obj, obj.frustumCulled);
+          obj.frustumCulled = false;
+        }
+      });
+    };
+
+    disableCullingForWarmup(this.floor1Group);
+    disableCullingForWarmup(this.floor2Group);
+
+    for (let i = 0; i < this.sharedTextures.length; i++) {
+      this.renderer.initTexture(this.sharedTextures[i]);
+    }
+    if (this.hanakoMirrorMat?.map) {
+      this.renderer.initTexture(this.hanakoMirrorMat.map);
+    }
+    if (this.aparcabicicletasFoliageHandle) {
+      this.aparcabicicletasFoliageHandle.textures.forEach((tex) =>
+        this.renderer.initTexture(tex)
+      );
+    }
+    this.markersById.forEach((vis) => {
+      if (vis.glbInstance) {
+        vis.glbInstance.root.traverse((obj) => {
           if (obj instanceof THREE.Mesh) {
             const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
             mats.forEach((mat) => {
@@ -2794,13 +2842,21 @@ export class SchoolEngine {
             });
           }
         });
-        this.renderer.compile(this.scene, this.camera);
-        floorGroup.visible = prevFloorVisible;
-        visRecord.root.visible = prevMarkerVisible;
       }
-    } catch {
-      // Mantiene activo el marcador procedural de respaldo si falla la red
-    }
+    });
+
+    this.renderer.compile(this.scene, this.camera);
+    this.renderCurrentFrame();
+
+    savedCulling.forEach((wasCulled, obj) => {
+      obj.frustumCulled = wasCulled;
+    });
+    this.markersById.forEach((vis, id) => {
+      vis.root.visible = savedMarkerVis.get(id) ?? true;
+    });
+
+    this.floor1Group.visible = prevFloor1Vis;
+    this.floor2Group.visible = prevFloor2Vis;
   }
 
   public getCurrentFloor(): FloorNumber {
@@ -2820,15 +2876,24 @@ export class SchoolEngine {
     }
   }
 
+  /**
+   * Alterna visibilidad de piso y el arreglo precalculado de colisiones (`activeFloorCollision`)
+   * en O(1) sin destruir ni recalcular ningún Box3 durante la transición de escaleras.
+   */
+  public toggleFloorVisibility(floor: FloorNumber) {
+    this.currentFloor = floor;
+    this.floor1Group.visible = floor === 1;
+    this.floor2Group.visible = floor === 2;
+    this.activeFloorCollision = this.floorCollisions?.[floor] ?? null;
+  }
+
   public setFloor(
     floor: FloorNumber,
     spawnPos?: [number, number, number],
     yaw?: number,
     options?: { silentFloorNotice?: boolean }
   ) {
-    this.currentFloor = floor;
-    this.floor1Group.visible = floor === 1;
-    this.floor2Group.visible = floor === 2;
+    this.toggleFloorVisibility(floor);
 
     if (spawnPos) {
       this.playerPos.set(spawnPos[0], 1.65, spawnPos[2]);
@@ -2955,7 +3020,10 @@ export class SchoolEngine {
   }
 
   private isWalkable(x: number, z: number, floor: FloorNumber): WalkableRect | null {
-    const floorData = this.floorCollisions?.[floor];
+    const floorData =
+      floor === this.currentFloor && this.activeFloorCollision
+        ? this.activeFloorCollision
+        : this.floorCollisions?.[floor];
     if (floorData) {
       return findValidWalkableZone(x, z, floorData, PLAYER_COLLISION_RADIUS);
     }
@@ -3015,7 +3083,7 @@ export class SchoolEngine {
 
       const prevX = this.playerPos.x;
       const prevZ = this.playerPos.z;
-      const floorData = this.floorCollisions?.[this.currentFloor];
+      const floorData = this.activeFloorCollision ?? this.floorCollisions?.[this.currentFloor];
 
       if (floorData) {
         const resolved = resolvePlayerMovement(
